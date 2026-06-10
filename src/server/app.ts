@@ -22,6 +22,7 @@ export type WebSocketOptions = {
 export function createApp(options: CreateAppOptions): Express {
   const app = express();
   let running = false;
+  let activeRunId = 0;
 
   app.use(express.json());
 
@@ -30,12 +31,18 @@ export function createApp(options: CreateAppOptions): Express {
   });
 
   app.post("/api/start", (_request, response) => {
+    if (options.state.snapshot().status === "paused") {
+      response.status(409).json({ error: "Task is paused; stop before starting a new run" });
+      return;
+    }
+
     if (running) {
       response.status(409).json({ error: "Task is already running" });
       return;
     }
 
     running = true;
+    const runId = ++activeRunId;
     response.status(202).json({ started: true });
 
     void Promise.resolve()
@@ -45,7 +52,9 @@ export function createApp(options: CreateAppOptions): Express {
         options.state.setStatus("failed");
       })
       .finally(() => {
-        running = false;
+        if (activeRunId === runId && options.state.snapshot().status !== "paused") {
+          running = false;
+        }
       });
   });
 
@@ -56,6 +65,8 @@ export function createApp(options: CreateAppOptions): Express {
 
   app.post("/api/stop", (_request, response) => {
     options.state.requestStop();
+    running = false;
+    activeRunId += 1;
     response.status(202).json(options.state.snapshot());
 
     void Promise.resolve()

@@ -70,6 +70,32 @@ describe("createApp", () => {
     });
   });
 
+  it("requires stop before restarting after the runner pauses for manual login", async () => {
+    const state = new TaskStateStore();
+    const run = vi.fn(async () => {
+      state.requestPause();
+      state.markPaused();
+    });
+    const stop = vi.fn(async () => undefined);
+    const baseUrl = await listen(createApp({ state, runner: { run, stop } }));
+
+    const first = await fetch(`${baseUrl}/api/start`, { method: "POST" });
+    await vi.waitFor(() => expect(state.snapshot().status).toBe("paused"));
+    const second = await fetch(`${baseUrl}/api/start`, { method: "POST" });
+    const stopResponse = await fetch(`${baseUrl}/api/stop`, { method: "POST" });
+    const third = await fetch(`${baseUrl}/api/start`, { method: "POST" });
+
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toEqual({
+      error: "Task is paused; stop before starting a new run"
+    });
+    expect(stopResponse.status).toBe(202);
+    expect(third.status).toBe(202);
+    expect(run).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+  });
+
   it("pause and stop endpoints update the shared state", async () => {
     const state = new TaskStateStore();
     state.start();
