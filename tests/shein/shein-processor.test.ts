@@ -412,7 +412,7 @@ describe("SheinProcessor", () => {
     });
   });
 
-  it("pauses and logs when the next page selector is missing", async () => {
+  it("completes when the next page selector is absent on the terminal page", async () => {
     const state = new TaskStateStore();
     const row = makeRow(
       "\u5546\u54c1ID SKU-13 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a564 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a51",
@@ -426,11 +426,10 @@ describe("SheinProcessor", () => {
 
     await processor.processAllPages();
 
-    const snapshot = state.snapshot();
-    expect(snapshot.status).toBe("paused");
-    expect(snapshot.logs).toMatchObject([{ level: "error", phase: "shein" }]);
-    expect(snapshot.logs[0]?.message).toContain("Next page button selector found no elements");
-    expect(snapshot.results).toMatchObject([{ productId: "SKU-13" }]);
+    expect(state.snapshot()).toMatchObject({
+      status: "completed",
+      results: [{ productId: "SKU-13" }]
+    });
   });
 
   it("pauses and logs when reject click retry attempts are exhausted", async () => {

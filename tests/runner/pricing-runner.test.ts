@@ -52,6 +52,44 @@ describe("PricingRunner", () => {
     expect(state.snapshot().status).toBe("completed");
   });
 
+  it("retries transient SHEIN navigation failures before processing pages", async () => {
+    const state = new TaskStateStore();
+    const page = {} as Page;
+    const processAllPages = vi.fn(async () => {
+      state.setStatus("completed");
+    });
+    const openShein = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary load failure"))
+      .mockResolvedValueOnce({ status: "ready", page } satisfies LoginNavigationResult);
+    const runner = new PricingRunner({
+      config,
+      state,
+      hubstudio: {
+        findProfileByName: vi.fn(async () => ({ id: "profile-1", name: "profile-name" })),
+        startProfile: vi.fn(async () => ({ wsEndpoint: "ws://browser" }))
+      } as unknown as HubstudioClient,
+      browser: {
+        connect: vi.fn(async () => page),
+        openShein,
+        close: vi.fn(async () => undefined)
+      } as unknown as BrowserSession,
+      createProcessor: vi.fn(() => ({ processAllPages }))
+    });
+
+    await runner.run();
+
+    expect(openShein).toHaveBeenCalledTimes(2);
+    expect(processAllPages).toHaveBeenCalledTimes(1);
+    expect(state.snapshot().logs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: "warn",
+        phase: "shein",
+        message: "Open SHEIN attempt 1 failed"
+      })
+    ]));
+    expect(state.snapshot().status).toBe("completed");
+  });
+
   it("pauses when SHEIN needs manual login and does not process pages", async () => {
     const state = new TaskStateStore();
     const page = {} as Page;

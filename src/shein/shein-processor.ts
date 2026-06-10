@@ -227,7 +227,7 @@ export class SheinProcessor {
     const nextButtons = this.page.locator(NEXT_PAGE_BUTTON_SELECTOR);
     const nextButtonCount = await nextButtons.count();
     if (nextButtonCount === 0) {
-      throw new Error("Next page button selector found no elements");
+      return false;
     }
 
     const nextButton = await findVisible(nextButtons, { propagateCountErrors: true });

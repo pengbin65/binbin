@@ -1,5 +1,5 @@
 import type { Page } from "playwright";
-import { BrowserSession } from "../browser/browser-session.js";
+import { BrowserSession, type LoginNavigationResult } from "../browser/browser-session.js";
 import type { AppConfig } from "../config.js";
 import type { TaskStateStore } from "../domain/task-state.js";
 import { HubstudioClient } from "../hubstudio/hubstudio-client.js";
@@ -67,7 +67,10 @@ export class PricingRunner {
 
       state.log("shein", "Opening SHEIN New Product Negotiation page");
       state.setStatus("navigating");
-      const navigation = await this.browser.openShein(page, config.sheinNewProductNegotiationUrl);
+      const navigation = await this.openSheinWithRetry(page);
+      if (!navigation) {
+        return;
+      }
       if (this.shouldStopAfter("opening SHEIN")) {
         return;
       }
@@ -107,8 +110,39 @@ export class PricingRunner {
       state.log("browser", `Browser close failed: ${formatErrorMessage(error)}`, "warn");
     });
   }
+
+  private async openSheinWithRetry(page: Page): Promise<LoginNavigationResult | null> {
+    const { config, state } = this.options;
+    let lastError: unknown;
+    const attempts = Math.max(1, config.retryAttempts);
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      if (state.shouldStop()) {
+        return null;
+      }
+
+      try {
+        return await this.browser.openShein(page, config.sheinNewProductNegotiationUrl);
+      } catch (error) {
+        lastError = error;
+        if (attempt < attempts) {
+          state.log("shein", `Open SHEIN attempt ${attempt} failed`, "warn");
+          await delay(config.retryDelayMs);
+          if (state.shouldStop()) {
+            return null;
+          }
+        }
+      }
+    }
+
+    throw new Error(`Open SHEIN failed: ${formatErrorMessage(lastError)}`);
+  }
 }
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
