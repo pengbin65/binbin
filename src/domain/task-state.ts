@@ -66,7 +66,7 @@ export class TaskStateStore {
   }
 
   recordResult(row: ResultRow): void {
-    this.results.push(row);
+    this.results.push({ ...row });
   }
 
   requestPause(): void {
@@ -74,6 +74,10 @@ export class TaskStateStore {
   }
 
   markPaused(): void {
+    if (this.stopRequested) {
+      this.status = "stopped";
+      return;
+    }
     this.status = "paused";
   }
 
@@ -95,8 +99,8 @@ export class TaskStateStore {
       status: this.status,
       pauseRequested: this.pauseRequested,
       stopRequested: this.stopRequested,
-      logs: [...this.logs],
-      results: [...this.results]
+      logs: this.logs.map((log) => ({ ...log })),
+      results: this.results.map((result) => ({ ...result }))
     };
   }
 }
