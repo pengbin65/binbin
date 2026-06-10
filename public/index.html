@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>核价控制台</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f6f8;
+        --panel: #ffffff;
+        --border: #d7dce2;
+        --border-strong: #b7c0ca;
+        --text: #1f2933;
+        --muted: #66737f;
+        --muted-bg: #eef1f4;
+        --primary: #225ea8;
+        --primary-dark: #174a86;
+        --danger: #a83232;
+        --danger-dark: #842626;
+        --warn: #8a5a00;
+        --ok: #1f7a4d;
+        --error-bg: #fff1f1;
+        --error-border: #e0aaaa;
+        font-family: Arial, "Microsoft YaHei", "PingFang SC", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .app {
+        width: min(1440px, 100%);
+        margin: 0 auto;
+        padding: 16px;
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      h2 {
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .subtle {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      button {
+        min-width: 72px;
+        min-height: 34px;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        padding: 7px 12px;
+        color: #ffffff;
+        background: var(--primary);
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      button:hover:not(:disabled) {
+        background: var(--primary-dark);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        color: #7a858f;
+        border-color: var(--border);
+        background: var(--muted-bg);
+      }
+
+      button[data-action="stop"] {
+        background: var(--danger);
+      }
+
+      button[data-action="stop"]:hover:not(:disabled) {
+        background: var(--danger-dark);
+      }
+
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .metric,
+      .section {
+        border: 1px solid var(--border);
+        background: var(--panel);
+      }
+
+      .metric {
+        min-height: 70px;
+        padding: 10px 12px;
+      }
+
+      .metric-label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .metric-value {
+        margin-top: 6px;
+        overflow-wrap: anywhere;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .metric-value.ok {
+        color: var(--ok);
+      }
+
+      .metric-value.warn {
+        color: var(--warn);
+      }
+
+      .metric-value.error {
+        color: var(--danger);
+      }
+
+      .notice {
+        display: none;
+        margin-top: 12px;
+        padding: 9px 12px;
+        border: 1px solid var(--error-border);
+        background: var(--error-bg);
+        color: var(--danger);
+        overflow-wrap: anywhere;
+      }
+
+      .notice.show {
+        display: block;
+      }
+
+      .section {
+        margin-top: 12px;
+      }
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+        min-height: 42px;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .table-wrap {
+        width: 100%;
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        min-width: 1040px;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        background: #fafbfc;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      td {
+        overflow-wrap: anywhere;
+      }
+
+      .number {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 2px 7px;
+        background: var(--muted-bg);
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .badge.ok {
+        border-color: #b7d8c7;
+        background: #e9f6ef;
+        color: var(--ok);
+      }
+
+      .badge.warn {
+        border-color: #e1ca91;
+        background: #fff7e3;
+        color: var(--warn);
+      }
+
+      .badge.error {
+        border-color: #e0aaaa;
+        background: #fff1f1;
+        color: var(--danger);
+      }
+
+      .empty {
+        padding: 18px 12px;
+        color: var(--muted);
+      }
+
+      .logs {
+        max-height: 280px;
+        margin: 0;
+        padding: 8px 12px;
+        overflow: auto;
+        background: #101820;
+        color: #dbe5ee;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+      }
+
+      .log-error {
+        color: #ffb4b4;
+      }
+
+      .log-warn {
+        color: #ffe09a;
+      }
+
+      @media (max-width: 840px) {
+        .app {
+          padding: 10px;
+        }
+
+        .topbar {
+          grid-template-columns: 1fr;
+        }
+
+        .controls {
+          justify-content: flex-start;
+        }
+
+        .status-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 520px) {
+        body {
+          font-size: 13px;
+        }
+
+        .status-grid {
+          grid-template-columns: 1fr;
+        }
+
+        button {
+          flex: 1 1 30%;
+          min-width: 0;
+          padding-inline: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1>核价控制台</h1>
+          <div class="subtle" id="connectionText">正在连接...</div>
+        </div>
+        <div class="controls" aria-label="任务控制">
+          <button type="button" data-action="start" id="startButton">开始</button>
+          <button type="button" data-action="pause" id="pauseButton">暂停</button>
+          <button type="button" data-action="stop" id="stopButton">停止</button>
+        </div>
+      </header>
+
+      <section class="status-grid" aria-label="当前状态">
+        <div class="metric">
+          <div class="metric-label">状态</div>
+          <div class="metric-value" id="statusValue">未知</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">结果数</div>
+          <div class="metric-value" id="resultCount">0</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">暂停请求</div>
+          <div class="metric-value" id="pauseValue">否</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">停止请求</div>
+          <div class="metric-value" id="stopValue">否</div>
+        </div>
+      </section>
+
+      <div class="notice" id="errorNotice" role="alert"></div>
+
+      <section class="section" aria-labelledby="resultsTitle">
+        <div class="section-header">
+          <h2 id="resultsTitle">核价结果</h2>
+          <span class="subtle" id="updatedAt">尚未更新</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>商品</th>
+                <th class="number">报价</th>
+                <th class="number">原价</th>
+                <th class="number">70% 阈值</th>
+                <th class="number">当前售价</th>
+                <th class="number">官方建议价</th>
+                <th>结果</th>
+                <th>动作</th>
+                <th>原因</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+          <div class="empty" id="emptyResults">暂无结果</div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="logsTitle">
+        <div class="section-header">
+          <h2 id="logsTitle">日志</h2>
+          <span class="subtle" id="logCount">0 条</span>
+        </div>
+        <pre class="logs" id="logsOutput">暂无日志</pre>
+      </section>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>
