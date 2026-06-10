@@ -8,7 +8,8 @@ type FakeLocatorOptions = {
   textError?: Error;
   visible?: boolean;
   disabled?: boolean;
-  click?: () => void;
+  countError?: Error;
+  click?: () => void | Promise<void>;
   children?: Record<string, FakeLocator[]>;
 };
 
@@ -16,11 +17,12 @@ class FakeLocator {
   readonly text: string | null;
   readonly visible: boolean;
   readonly disabled: boolean;
-  private readonly clickHandler?: () => void;
+  private readonly clickHandler?: () => void | Promise<void>;
   private readonly children: Record<string, FakeLocator[]>;
   private readonly items?: FakeLocator[];
   private readonly textValues?: string[];
   private readonly textError?: Error;
+  private readonly countError?: Error;
   private textIndex = 0;
 
   constructor(options: FakeLocatorOptions | FakeLocator[] = {}) {
@@ -40,6 +42,7 @@ class FakeLocator {
     this.clickHandler = options.click;
     this.children = options.children ?? {};
     this.textError = options.textError;
+    this.countError = options.countError;
   }
 
   async textContent(): Promise<string | null> {
@@ -57,6 +60,10 @@ class FakeLocator {
   }
 
   async count(): Promise<number> {
+    if (this.countError) {
+      throw this.countError;
+    }
+
     return this.items?.length ?? 1;
   }
 
@@ -88,7 +95,7 @@ class FakeLocator {
     if (!this.visible || this.disabled) {
       throw new Error("cannot click locator");
     }
-    this.clickHandler?.();
+    await this.clickHandler?.();
   }
 
   async getAttribute(): Promise<string | null> {
@@ -99,7 +106,7 @@ class FakeLocator {
 class FakePage {
   constructor(
     private readonly pages: FakeLocator[][],
-    private readonly options: { nextDisabled?: boolean } = {}
+    private readonly options: { nextDisabled?: boolean; nextLocator?: FakeLocator } = {}
   ) {}
 
   private pageIndex = 0;
@@ -115,6 +122,10 @@ class FakePage {
   locator(selector: string): FakeLocator {
     if (selector === "tbody tr") {
       return new FakeLocator(this.pages[this.pageIndex] ?? []);
+    }
+
+    if (this.options.nextLocator) {
+      return this.options.nextLocator;
     }
 
     if (selector === "button:has-text('下一页'), button:has-text('Next')") {
@@ -242,9 +253,66 @@ describe("SheinProcessor", () => {
 
     expect(state.snapshot().results).toMatchObject([{ productId: "SKU-4" }]);
   });
+
+  it("pauses and logs when reject click retry attempts are exhausted", async () => {
+    const state = new TaskStateStore();
+    const row = makeRow(
+      "商品ID SKU-7 报价 ¥100 当前销售价 ¥62.99 官方建议价 ¥7.99",
+      vi.fn(() => {
+        throw new Error("reject unavailable");
+      })
+    );
+    const processor = new SheinProcessor(new FakePage([[row]]) as unknown as Page, state, retry);
+
+    await expect(processor.processAllPages()).resolves.toBeUndefined();
+
+    const snapshot = state.snapshot();
+    expect(snapshot.status).toBe("paused");
+    expect(snapshot.logs).toMatchObject([{ level: "error", phase: "shein" }]);
+    expect(snapshot.logs[0]?.message).toContain("reject failed product");
+    expect(snapshot.results).toHaveLength(0);
+  });
+
+  it("pauses and logs when next page lookup retry attempts are exhausted", async () => {
+    const state = new TaskStateStore();
+    const row = makeRow("商品ID SKU-8 报价 ¥100 当前销售价 ¥64 官方建议价 ¥1", vi.fn());
+    const processor = new SheinProcessor(
+      new FakePage([[row], []], {
+        nextLocator: new FakeLocator({ countError: new Error("pagination detached") })
+      }) as unknown as Page,
+      state,
+      retry
+    );
+
+    await expect(processor.processAllPages()).resolves.toBeUndefined();
+
+    const snapshot = state.snapshot();
+    expect(snapshot.status).toBe("paused");
+    expect(snapshot.logs).toMatchObject([{ level: "error", phase: "shein" }]);
+    expect(snapshot.logs[0]?.message).toContain("go to next page");
+  });
+
+  it("does not click reject twice for the same failed product id in one run", async () => {
+    const rejectClick = vi.fn();
+    const state = new TaskStateStore();
+    const duplicateText = "商品ID SKU-9 报价 ¥100 当前销售价 ¥62.99 官方建议价 ¥7.99";
+    const processor = new SheinProcessor(
+      new FakePage([[makeRow(duplicateText, rejectClick), makeRow(duplicateText, rejectClick)]]) as unknown as Page,
+      state,
+      retry
+    );
+
+    await processor.processAllPages();
+
+    expect(rejectClick).toHaveBeenCalledTimes(1);
+    expect(state.snapshot().results).toMatchObject([
+      { productId: "SKU-9", action: "rejected", passed: false },
+      { productId: "SKU-9", action: "skipped", passed: false }
+    ]);
+  });
 });
 
-function makeRow(text: string | string[], rejectClick: () => void): FakeLocator {
+function makeRow(text: string | string[], rejectClick: () => void | Promise<void>): FakeLocator {
   return new FakeLocator({
     text,
     children: {

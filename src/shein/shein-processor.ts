@@ -33,6 +33,8 @@ export async function readRowPrices(row: Pick<Locator, "textContent">): Promise<
 }
 
 export class SheinProcessor {
+  private readonly rejectedProductIds = new Set<string>();
+
   constructor(
     private readonly page: Page,
     private readonly state: TaskStateStore,
@@ -40,11 +42,21 @@ export class SheinProcessor {
   ) {}
 
   async processAllPages(): Promise<void> {
+    this.rejectedProductIds.clear();
     this.state.setStatus("pricing");
-    await this.withRetry(() => this.verifyCurrentPage(), "verify SHEIN page");
+    if (
+      (await this.pauseOnFailure(
+        () => this.withRetry(() => this.verifyCurrentPage(), "verify SHEIN page"),
+        "verify SHEIN page"
+      )) === null
+    ) {
+      return;
+    }
 
     while (!this.state.shouldStop()) {
-      await this.processCurrentPage();
+      if ((await this.pauseOnFailure(() => this.processCurrentPage(), "process SHEIN page")) === null) {
+        return;
+      }
 
       if (this.state.shouldStop()) {
         return;
@@ -55,7 +67,14 @@ export class SheinProcessor {
         return;
       }
 
-      const advanced = await this.withRetry(() => this.advanceToNextPage(), "go to next page");
+      const advanced = await this.pauseOnFailure(
+        () => this.withRetry(() => this.advanceToNextPage(), "go to next page"),
+        "go to next page"
+      );
+      if (advanced === null) {
+        return;
+      }
+
       if (!advanced) {
         this.state.setStatus("completed");
         return;
@@ -107,14 +126,27 @@ export class SheinProcessor {
       return;
     }
 
+    if (this.rejectedProductIds.has(productId)) {
+      this.state.recordResult({
+        productId,
+        ...prices,
+        ...decision,
+        action: "skipped",
+        reason: decision.reason,
+        error: "Duplicate failed product id already rejected in this run"
+      });
+      return;
+    }
+
     await this.withRetry(() => this.verifyCurrentPage(), "verify SHEIN page before reject");
     await this.withRetry(async () => {
-      const rejectButton = await findVisible(row.locator(REJECT_BUTTON_SELECTOR));
+      const rejectButton = await findVisible(row.locator(REJECT_BUTTON_SELECTOR), { propagateCountErrors: true });
       if (!rejectButton) {
         throw new Error("visible reject button not found");
       }
       await rejectButton.click();
     }, "reject failed product");
+    this.rejectedProductIds.add(productId);
 
     this.state.recordResult({
       productId,
@@ -133,7 +165,7 @@ export class SheinProcessor {
   }
 
   private async advanceToNextPage(): Promise<boolean> {
-    const nextButton = await findVisible(this.page.locator(NEXT_PAGE_BUTTON_SELECTOR));
+    const nextButton = await findVisible(this.page.locator(NEXT_PAGE_BUTTON_SELECTOR), { propagateCountErrors: true });
     if (!nextButton) {
       return false;
     }
@@ -164,12 +196,31 @@ export class SheinProcessor {
       }
     }
 
-    throw lastError instanceof Error ? lastError : new Error(`${label} failed`);
+    throw new Error(`${label} failed: ${formatErrorMessage(lastError)}`);
+  }
+
+  private async pauseOnFailure<T>(operation: () => Promise<T>, label: string): Promise<T | null> {
+    try {
+      return await operation();
+    } catch (error) {
+      this.state.log(PHASE, `${label} failed: ${formatErrorMessage(error)}`, "error");
+      this.state.requestPause();
+      this.state.markPaused();
+      return null;
+    }
   }
 }
 
-async function findVisible(locator: Locator): Promise<Locator | null> {
-  const count = await locator.count().catch(() => 0);
+async function findVisible(
+  locator: Locator,
+  options: { propagateCountErrors?: boolean } = {}
+): Promise<Locator | null> {
+  const count = await locator.count().catch((error: unknown) => {
+    if (options.propagateCountErrors) {
+      throw error;
+    }
+    return 0;
+  });
   for (let index = 0; index < count; index += 1) {
     const candidate = locator.nth(index);
     if (await candidate.isVisible().catch(() => false)) {
