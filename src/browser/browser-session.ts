@@ -1,9 +1,4 @@
-import { chromium, type Browser, type Page } from "playwright";
-
-export type BrowserSessionOptions = {
-  wsEndpoint: string;
-  sheinNewProductNegotiationUrl: string;
-};
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 
 export type LoginNavigationResult =
   | { status: "ready"; page: Page }
@@ -13,11 +8,17 @@ const LOGIN_BUTTON_SELECTOR = "button:has-text('\u767b\u5f55'), button:has-text(
 const VERIFICATION_TEXT_PATTERN =
   /\u9a8c\u8bc1\u7801|\u9a8c\u8bc1|\u4e8c\u6b21\u9a8c\u8bc1|\u5b89\u5168\u9a8c\u8bc1|Verification|Verify/i;
 const NAVIGATION_TIMEOUT_MS = 60_000;
+const BRIEF_VISIBILITY_TIMEOUT_MS = 3_000;
+const POST_LOGIN_VISIBILITY_TIMEOUT_MS = 2_000;
 
 export class BrowserSession {
   private browser?: Browser;
 
   async connect(wsEndpoint: string): Promise<Page> {
+    if (this.browser) {
+      await this.close();
+    }
+
     this.browser = await chromium.connectOverCDP(wsEndpoint);
 
     const context = this.browser.contexts()[0] ?? await this.browser.newContext();
@@ -36,7 +37,7 @@ export class BrowserSession {
 
     await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
 
-    if (await isVisible(page.getByText(VERIFICATION_TEXT_PATTERN).first())) {
+    if (await waitForVisible(page.getByText(VERIFICATION_TEXT_PATTERN).first(), BRIEF_VISIBILITY_TIMEOUT_MS)) {
       return {
         status: "needs_manual_login",
         page,
@@ -45,12 +46,29 @@ export class BrowserSession {
     }
 
     const loginButton = page.locator(LOGIN_BUTTON_SELECTOR).first();
-    if (await isVisible(loginButton)) {
-      await loginButton.click();
+    if (await waitForVisible(loginButton, BRIEF_VISIBILITY_TIMEOUT_MS)) {
+      try {
+        await loginButton.click();
+      } catch (error) {
+        return {
+          status: "needs_manual_login",
+          page,
+          reason: `SHEIN login click failed: ${formatErrorMessage(error)}`
+        };
+      }
+
       await page.waitForLoadState("domcontentloaded", { timeout: NAVIGATION_TIMEOUT_MS }).catch(() => undefined);
     }
 
-    if (await isVisible(page.locator(LOGIN_BUTTON_SELECTOR).first())) {
+    if (await waitForVisible(page.getByText(VERIFICATION_TEXT_PATTERN).first(), POST_LOGIN_VISIBILITY_TIMEOUT_MS)) {
+      return {
+        status: "needs_manual_login",
+        page,
+        reason: "SHEIN verification challenge is visible after login click"
+      };
+    }
+
+    if (await waitForVisible(loginButton, POST_LOGIN_VISIBILITY_TIMEOUT_MS)) {
       return {
         status: "needs_manual_login",
         page,
@@ -68,10 +86,13 @@ export class BrowserSession {
   }
 }
 
-type VisibleLocator = {
-  isVisible(): Promise<boolean>;
-};
+async function waitForVisible(locator: Locator, timeout: number): Promise<boolean> {
+  return locator
+    .waitFor({ state: "visible", timeout })
+    .then(() => true)
+    .catch(() => false);
+}
 
-async function isVisible(locator: VisibleLocator): Promise<boolean> {
-  return locator.isVisible().catch(() => false);
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
