@@ -16,7 +16,7 @@ const NEXT_PAGE_BUTTON_SELECTOR = "button:has-text('下一页'), button:has-text
 const PHASE = "shein";
 
 export async function readRowPrices(row: Pick<Locator, "textContent">): Promise<RowPrices | null> {
-  const text = await row.textContent();
+  const text = await row.textContent().catch(() => null);
   if (!text) {
     return null;
   }

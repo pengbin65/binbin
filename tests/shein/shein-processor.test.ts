@@ -5,6 +5,7 @@ import { SheinProcessor, readRowPrices } from "../../src/shein/shein-processor.j
 
 type FakeLocatorOptions = {
   text?: string | string[] | null;
+  textError?: Error;
   visible?: boolean;
   disabled?: boolean;
   click?: () => void;
@@ -19,6 +20,7 @@ class FakeLocator {
   private readonly children: Record<string, FakeLocator[]>;
   private readonly items?: FakeLocator[];
   private readonly textValues?: string[];
+  private readonly textError?: Error;
   private textIndex = 0;
 
   constructor(options: FakeLocatorOptions | FakeLocator[] = {}) {
@@ -37,9 +39,14 @@ class FakeLocator {
     this.disabled = options.disabled ?? false;
     this.clickHandler = options.click;
     this.children = options.children ?? {};
+    this.textError = options.textError;
   }
 
   async textContent(): Promise<string | null> {
+    if (this.textError) {
+      throw this.textError;
+    }
+
     if (this.textValues) {
       const value = this.textValues[Math.min(this.textIndex, this.textValues.length - 1)] ?? null;
       this.textIndex += 1;
@@ -144,6 +151,12 @@ describe("readRowPrices", () => {
 
   it("returns null when any labelled price is missing", async () => {
     const row = new FakeLocator({ text: "报价 ¥100 当前销售价 ¥62.99" });
+
+    await expect(readRowPrices(row as unknown as Locator)).resolves.toBeNull();
+  });
+
+  it("returns null when row text cannot be read", async () => {
+    const row = new FakeLocator({ textError: new Error("text unavailable") });
 
     await expect(readRowPrices(row as unknown as Locator)).resolves.toBeNull();
   });
