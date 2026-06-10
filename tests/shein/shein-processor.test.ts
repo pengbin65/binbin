@@ -7,7 +7,7 @@ type FakeLocatorOptions = {
   text?: string | string[] | null;
   textError?: Error;
   visible?: boolean;
-  disabled?: boolean;
+  disabled?: boolean | (() => boolean);
   countError?: Error;
   click?: () => void | Promise<void>;
   children?: Record<string, FakeLocator[]>;
@@ -16,7 +16,7 @@ type FakeLocatorOptions = {
 class FakeLocator {
   readonly text: string | null;
   readonly visible: boolean;
-  readonly disabled: boolean;
+  private readonly disabled: boolean | (() => boolean);
   private readonly clickHandler?: () => void | Promise<void>;
   private readonly children: Record<string, FakeLocator[]>;
   private readonly items?: FakeLocator[];
@@ -88,11 +88,11 @@ class FakeLocator {
   }
 
   async isDisabled(): Promise<boolean> {
-    return this.disabled;
+    return typeof this.disabled === "function" ? this.disabled() : this.disabled;
   }
 
   async click(): Promise<void> {
-    if (!this.visible || this.disabled) {
+    if (!this.visible || (await this.isDisabled())) {
       throw new Error("cannot click locator");
     }
     await this.clickHandler?.();
@@ -350,6 +350,66 @@ describe("SheinProcessor", () => {
 
     expect(state.snapshot().results).toMatchObject([{ productId: "SKU-4" }]);
     expect(state.snapshot().status).toBe("completed");
+  });
+
+  it("does not click next page when stop is requested during disabled check", async () => {
+    const state = new TaskStateStore();
+    const nextClick = vi.fn();
+    const row = makeRow(
+      "\u5546\u54c1ID SKU-17 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a564 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a51",
+      vi.fn()
+    );
+    const nextButton = new FakeLocator({
+      visible: true,
+      disabled: () => {
+        state.requestStop();
+        return false;
+      },
+      click: nextClick
+    });
+    const processor = new SheinProcessor(
+      new FakePage([[row]], { nextLocator: new FakeLocator([nextButton]) }) as unknown as Page,
+      state,
+      retry
+    );
+
+    await processor.processAllPages();
+
+    expect(nextClick).not.toHaveBeenCalled();
+    expect(state.snapshot()).toMatchObject({
+      status: "stopped",
+      stopRequested: true
+    });
+  });
+
+  it("does not click next page when pause is requested during disabled check", async () => {
+    const state = new TaskStateStore();
+    const nextClick = vi.fn();
+    const row = makeRow(
+      "\u5546\u54c1ID SKU-18 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a564 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a51",
+      vi.fn()
+    );
+    const nextButton = new FakeLocator({
+      visible: true,
+      disabled: () => {
+        state.requestPause();
+        return false;
+      },
+      click: nextClick
+    });
+    const processor = new SheinProcessor(
+      new FakePage([[row]], { nextLocator: new FakeLocator([nextButton]) }) as unknown as Page,
+      state,
+      retry
+    );
+
+    await processor.processAllPages();
+
+    expect(nextClick).not.toHaveBeenCalled();
+    expect(state.snapshot()).toMatchObject({
+      status: "paused",
+      pauseRequested: true
+    });
   });
 
   it("pauses and logs when the next page selector is missing", async () => {

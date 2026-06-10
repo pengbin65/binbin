@@ -83,6 +83,15 @@ export class SheinProcessor {
         return;
       }
 
+      if (this.state.shouldStop()) {
+        return;
+      }
+
+      if (this.state.shouldPause()) {
+        this.state.markPaused();
+        return;
+      }
+
       if (!advanced) {
         this.state.setStatus("completed");
         return;
@@ -227,6 +236,15 @@ export class SheinProcessor {
     }
 
     if (await nextButton.isDisabled()) {
+      return false;
+    }
+
+    if (this.state.shouldStop()) {
+      return false;
+    }
+
+    if (this.state.shouldPause()) {
+      this.state.markPaused();
       return false;
     }
 
