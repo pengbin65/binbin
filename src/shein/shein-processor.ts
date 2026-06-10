@@ -9,6 +9,12 @@ export type RetryOptions = {
   delayMs: number;
 };
 
+type ProductIdentity = {
+  productId: string;
+  rowText: string;
+  hasStableProductId: boolean;
+};
+
 const TARGET_PAGE_TEXT_PATTERN = /新品议价|New Product Negotiation/i;
 const ROW_SELECTOR = "tbody tr";
 const REJECT_BUTTON_SELECTOR = "button:has-text('拒绝'), button:has-text('驳回'), button:has-text('Reject')";
@@ -34,6 +40,7 @@ export async function readRowPrices(row: Pick<Locator, "textContent">): Promise<
 
 export class SheinProcessor {
   private readonly rejectedProductIds = new Set<string>();
+  private pageIndex = 1;
 
   constructor(
     private readonly page: Page,
@@ -43,6 +50,7 @@ export class SheinProcessor {
 
   async processAllPages(): Promise<void> {
     this.rejectedProductIds.clear();
+    this.pageIndex = 1;
     this.state.setStatus("pricing");
     if (
       (await this.pauseOnFailure(
@@ -79,6 +87,8 @@ export class SheinProcessor {
         this.state.setStatus("completed");
         return;
       }
+
+      this.pageIndex += 1;
     }
   }
 
@@ -103,6 +113,10 @@ export class SheinProcessor {
       }
       return rowPrices;
     }, "read product prices").catch((error: unknown) => {
+      if (isProcessingInterruptedError(error)) {
+        this.applyInterruption(error);
+        return null;
+      }
       this.state.log(PHASE, `Price data unreadable: ${formatErrorMessage(error)}`, "error");
       this.state.requestPause();
       return null;
@@ -113,7 +127,8 @@ export class SheinProcessor {
     }
 
     const decision = evaluatePricing(prices);
-    const productId = await extractProductId(row, index);
+    const productIdentity = await extractProductIdentity(row, index, this.pageIndex);
+    const { productId } = productIdentity;
 
     if (decision.passed) {
       this.state.recordResult({
@@ -143,12 +158,36 @@ export class SheinProcessor {
       return;
     }
 
+    if (this.state.shouldPause()) {
+      this.state.markPaused();
+      return;
+    }
+
+    const currentProductIdentity = await this.withRetry(
+      () => extractProductIdentity(row, index, this.pageIndex),
+      "re-read product identity before reject"
+    );
+    if (!isSameProductIdentity(productIdentity, currentProductIdentity)) {
+      this.state.log(
+        PHASE,
+        `Row identity changed before reject: expected ${productId}, found ${currentProductIdentity.productId}`,
+        "error"
+      );
+      this.state.requestPause();
+      this.state.markPaused();
+      return;
+    }
+
     const rejected = await this.withRetry(async () => {
       const rejectButton = await findVisible(row.locator(REJECT_BUTTON_SELECTOR), { propagateCountErrors: true });
       if (!rejectButton) {
         throw new Error("visible reject button not found");
       }
       if (this.state.shouldStop()) {
+        return false;
+      }
+      if (this.state.shouldPause()) {
+        this.state.markPaused();
         return false;
       }
       await rejectButton.click();
@@ -176,9 +215,15 @@ export class SheinProcessor {
   }
 
   private async advanceToNextPage(): Promise<boolean> {
-    const nextButton = await findVisible(this.page.locator(NEXT_PAGE_BUTTON_SELECTOR), { propagateCountErrors: true });
+    const nextButtons = this.page.locator(NEXT_PAGE_BUTTON_SELECTOR);
+    const nextButtonCount = await nextButtons.count();
+    if (nextButtonCount === 0) {
+      throw new Error("Next page button selector found no elements");
+    }
+
+    const nextButton = await findVisible(nextButtons, { propagateCountErrors: true });
     if (!nextButton) {
-      return false;
+      throw new Error("Next page button selector found no visible button");
     }
 
     if (await nextButton.isDisabled()) {
@@ -196,12 +241,17 @@ export class SheinProcessor {
     const attempts = Math.max(1, this.retry.attempts);
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      this.throwIfInterrupted();
       try {
         return await operation();
       } catch (error) {
+        if (isProcessingInterruptedError(error)) {
+          throw error;
+        }
         lastError = error;
         if (attempt < attempts) {
           this.state.log(PHASE, `${label} attempt ${attempt} failed`, "warn");
+          this.throwIfInterrupted();
           await delay(this.retry.delayMs);
         }
       }
@@ -214,10 +264,30 @@ export class SheinProcessor {
     try {
       return await operation();
     } catch (error) {
+      if (isProcessingInterruptedError(error)) {
+        this.applyInterruption(error);
+        return null;
+      }
       this.state.log(PHASE, `${label} failed: ${formatErrorMessage(error)}`, "error");
       this.state.requestPause();
       this.state.markPaused();
       return null;
+    }
+  }
+
+  private throwIfInterrupted(): void {
+    if (this.state.shouldStop()) {
+      throw new ProcessingInterruptedError("stop");
+    }
+
+    if (this.state.shouldPause()) {
+      throw new ProcessingInterruptedError("pause");
+    }
+  }
+
+  private applyInterruption(error: ProcessingInterruptedError): void {
+    if (error.reason === "pause") {
+      this.state.markPaused();
     }
   }
 }
@@ -246,15 +316,27 @@ async function findVisible(
   return null;
 }
 
-async function extractProductId(row: Locator, index: number): Promise<string> {
+async function extractProductIdentity(row: Locator, index: number, pageIndex: number): Promise<ProductIdentity> {
   const attr = await row.getAttribute("data-product-id").catch(() => null);
   if (attr) {
-    return attr;
+    return { productId: attr, rowText: "", hasStableProductId: true };
   }
 
   const text = (await row.textContent().catch(() => null)) ?? "";
   const match = /(?:商品ID|Product\s*ID|SKU|SPU)\s*[:：]?\s*([A-Za-z0-9_-]+)/i.exec(text);
-  return match?.[1] ?? `row-${index + 1}`;
+  if (match) {
+    return { productId: match[1], rowText: text, hasStableProductId: true };
+  }
+
+  return { productId: `page-${pageIndex}-row-${index + 1}`, rowText: text, hasStableProductId: false };
+}
+
+function isSameProductIdentity(expected: ProductIdentity, actual: ProductIdentity): boolean {
+  if (expected.productId !== actual.productId) {
+    return false;
+  }
+
+  return expected.hasStableProductId || expected.rowText === actual.rowText;
 }
 
 function extractLabelledPrice(text: string, label: string): number | null {
@@ -283,4 +365,14 @@ function delay(milliseconds: number): Promise<void> {
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+class ProcessingInterruptedError extends Error {
+  constructor(readonly reason: "pause" | "stop") {
+    super(`Processing interrupted: ${reason}`);
+  }
+}
+
+function isProcessingInterruptedError(error: unknown): error is ProcessingInterruptedError {
+  return error instanceof ProcessingInterruptedError;
 }

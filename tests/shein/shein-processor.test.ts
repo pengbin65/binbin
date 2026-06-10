@@ -132,7 +132,7 @@ class FakePage {
       const canAdvance = this.pageIndex < this.pages.length - 1;
       return new FakeLocator([
         new FakeLocator({
-          visible: canAdvance || this.options.nextDisabled === true,
+          visible: true,
           disabled: !canAdvance || this.options.nextDisabled === true,
           click: () => {
             this.pageIndex += 1;
@@ -156,6 +156,23 @@ class StopOnSecondVerificationPage extends FakePage {
     this.verificationCount += 1;
     if (this.verificationCount === 2) {
       this.state.requestStop();
+    }
+
+    return super.getByText(pattern);
+  }
+}
+
+class PauseOnSecondVerificationPage extends FakePage {
+  private verificationCount = 0;
+
+  constructor(pages: FakeLocator[][], private readonly state: TaskStateStore) {
+    super(pages);
+  }
+
+  override getByText(pattern: RegExp): FakeLocator {
+    this.verificationCount += 1;
+    if (this.verificationCount === 2) {
+      this.state.requestPause();
     }
 
     return super.getByText(pattern);
@@ -219,6 +236,49 @@ describe("SheinProcessor", () => {
     ]);
   });
 
+  it("pauses without clicking reject when row identity changes before reject", async () => {
+    const rejectClick = vi.fn();
+    const state = new TaskStateStore();
+    const row = makeRow(
+      [
+        "\u5546\u54c1ID SKU-11 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a562.99 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a57.99",
+        "\u5546\u54c1ID SKU-11 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a562.99 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a57.99",
+        "\u5546\u54c1ID SKU-CHANGED \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a562.99 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a57.99"
+      ],
+      rejectClick
+    );
+    const processor = new SheinProcessor(new FakePage([[row]]) as unknown as Page, state, retry);
+
+    await processor.processAllPages();
+
+    const snapshot = state.snapshot();
+    expect(rejectClick).not.toHaveBeenCalled();
+    expect(snapshot.status).toBe("paused");
+    expect(snapshot.logs).toMatchObject([{ level: "error", phase: "shein" }]);
+    expect(snapshot.logs[0]?.message).toContain("Row identity changed before reject");
+    expect(snapshot.results).toHaveLength(0);
+  });
+
+  it("pauses without clicking reject when pause is requested immediately before reject", async () => {
+    const rejectClick = vi.fn();
+    const state = new TaskStateStore();
+    const row = makeRow(
+      "\u5546\u54c1ID SKU-12 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a562.99 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a57.99",
+      rejectClick
+    );
+    const page = new PauseOnSecondVerificationPage([[row]], state);
+    const processor = new SheinProcessor(page as unknown as Page, state, retry);
+
+    await processor.processAllPages();
+
+    expect(rejectClick).not.toHaveBeenCalled();
+    expect(state.snapshot()).toMatchObject({
+      status: "paused",
+      pauseRequested: true,
+      results: []
+    });
+  });
+
   it("does not click reject when stop is requested during pre-reject page verification", async () => {
     const rejectClick = vi.fn();
     const state = new TaskStateStore();
@@ -276,7 +336,7 @@ describe("SheinProcessor", () => {
     ]);
   });
 
-  it("stops pagination when the next button is disabled or unavailable", async () => {
+  it("completes pagination when the next button is disabled", async () => {
     const state = new TaskStateStore();
     const firstPageRow = makeRow("商品ID SKU-4 报价 ¥100 当前销售价 ¥64 官方建议价 ¥1", vi.fn());
     const secondPageRow = makeRow("商品ID SKU-5 报价 ¥100 当前销售价 ¥64 官方建议价 ¥1", vi.fn());
@@ -289,6 +349,28 @@ describe("SheinProcessor", () => {
     await processor.processAllPages();
 
     expect(state.snapshot().results).toMatchObject([{ productId: "SKU-4" }]);
+    expect(state.snapshot().status).toBe("completed");
+  });
+
+  it("pauses and logs when the next page selector is missing", async () => {
+    const state = new TaskStateStore();
+    const row = makeRow(
+      "\u5546\u54c1ID SKU-13 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a564 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a51",
+      vi.fn()
+    );
+    const processor = new SheinProcessor(
+      new FakePage([[row]], { nextLocator: new FakeLocator([]) }) as unknown as Page,
+      state,
+      retry
+    );
+
+    await processor.processAllPages();
+
+    const snapshot = state.snapshot();
+    expect(snapshot.status).toBe("paused");
+    expect(snapshot.logs).toMatchObject([{ level: "error", phase: "shein" }]);
+    expect(snapshot.logs[0]?.message).toContain("Next page button selector found no elements");
+    expect(snapshot.results).toMatchObject([{ productId: "SKU-13" }]);
   });
 
   it("pauses and logs when reject click retry attempts are exhausted", async () => {
@@ -308,6 +390,32 @@ describe("SheinProcessor", () => {
     expect(snapshot.logs).toMatchObject([{ level: "error", phase: "shein" }]);
     expect(snapshot.logs[0]?.message).toContain("reject failed product");
     expect(snapshot.results).toHaveLength(0);
+  });
+
+  it("does not retry reject click after pause is requested between attempts", async () => {
+    const state = new TaskStateStore();
+    const rejectClick = vi.fn(() => {
+      state.requestPause();
+      throw new Error("transient reject failure");
+    });
+    const row = makeRow(
+      "\u5546\u54c1ID SKU-16 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a562.99 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a57.99",
+      rejectClick
+    );
+    const processor = new SheinProcessor(
+      new FakePage([[row]]) as unknown as Page,
+      state,
+      { attempts: 2, delayMs: 0 }
+    );
+
+    await processor.processAllPages();
+
+    expect(rejectClick).toHaveBeenCalledTimes(1);
+    expect(state.snapshot()).toMatchObject({
+      status: "paused",
+      pauseRequested: true,
+      results: []
+    });
   });
 
   it("pauses and logs when next page lookup retry attempts are exhausted", async () => {
@@ -346,6 +454,50 @@ describe("SheinProcessor", () => {
       { productId: "SKU-9", action: "rejected", passed: false },
       { productId: "SKU-9", action: "skipped", passed: false }
     ]);
+  });
+
+  it("uses unique fallback product ids across pages and does not falsely skip rejects", async () => {
+    const firstRejectClick = vi.fn();
+    const secondRejectClick = vi.fn();
+    const failedNoIdText = "\u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a562.99 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a57.99";
+    const state = new TaskStateStore();
+    const processor = new SheinProcessor(
+      new FakePage([[makeRow(failedNoIdText, firstRejectClick)], [makeRow(failedNoIdText, secondRejectClick)]]) as unknown as Page,
+      state,
+      retry
+    );
+
+    await processor.processAllPages();
+
+    expect(firstRejectClick).toHaveBeenCalledTimes(1);
+    expect(secondRejectClick).toHaveBeenCalledTimes(1);
+    expect(state.snapshot().results).toMatchObject([
+      { productId: "page-1-row-1", action: "rejected", passed: false },
+      { productId: "page-2-row-1", action: "rejected", passed: false }
+    ]);
+  });
+
+  it("records successful rows from multiple pages", async () => {
+    const state = new TaskStateStore();
+    const firstPageRow = makeRow(
+      "\u5546\u54c1ID SKU-14 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a564 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a51",
+      vi.fn()
+    );
+    const secondPageRow = makeRow(
+      "\u5546\u54c1ID SKU-15 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a564 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a51",
+      vi.fn()
+    );
+    const processor = new SheinProcessor(new FakePage([[firstPageRow], [secondPageRow]]) as unknown as Page, state, retry);
+
+    await processor.processAllPages();
+
+    expect(state.snapshot()).toMatchObject({
+      status: "completed",
+      results: [
+        { productId: "SKU-14", action: "recorded", passed: true },
+        { productId: "SKU-15", action: "recorded", passed: true }
+      ]
+    });
   });
 });
 
