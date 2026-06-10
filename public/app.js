@@ -120,11 +120,13 @@
       const payload = await readJsonOrEmpty(response);
 
       if (!response.ok) {
-        throw new Error(payload && payload.error ? payload.error : `${action} failed: ${response.status}`);
+        throw new Error(actionErrorMessage(action, response, payload));
       }
 
-      if (payload && payload.status) {
+      if (isSnapshot(payload)) {
         applySnapshot(payload);
+      } else {
+        await fetchState();
       }
     } catch (error) {
       showError(formatError(error));
@@ -136,7 +138,25 @@
 
   async function readJsonOrEmpty(response) {
     const text = await response.text();
-    return text ? JSON.parse(text) : undefined;
+    if (!text) {
+      return undefined;
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    const trimmed = text.trim();
+    const shouldParseJson = contentType.includes("json") || trimmed.startsWith("{") || trimmed.startsWith("[");
+    if (!shouldParseJson) {
+      return text;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      if (response.ok) {
+        throw error;
+      }
+      return text;
+    }
   }
 
   function applySnapshot(snapshot) {
@@ -145,12 +165,13 @@
   }
 
   function normalizeSnapshot(snapshot) {
+    const source = snapshot && typeof snapshot === "object" ? snapshot : {};
     return {
-      status: typeof snapshot.status === "string" ? snapshot.status : "idle",
-      pauseRequested: Boolean(snapshot.pauseRequested),
-      stopRequested: Boolean(snapshot.stopRequested),
-      logs: Array.isArray(snapshot.logs) ? snapshot.logs : [],
-      results: Array.isArray(snapshot.results) ? snapshot.results : []
+      status: typeof source.status === "string" ? source.status : "idle",
+      pauseRequested: Boolean(source.pauseRequested),
+      stopRequested: Boolean(source.stopRequested),
+      logs: Array.isArray(source.logs) ? source.logs : [],
+      results: Array.isArray(source.results) ? source.results : []
     };
   }
 
@@ -211,7 +232,7 @@
       appendCell(row, formatPrice(result.threshold70Percent), "number");
       appendCell(row, formatPrice(result.currentSellingPrice), "number");
       appendCell(row, formatPrice(result.officialSuggestedPrice), "number");
-      appendBadgeCell(row, result.passed ? "通过" : "未通过", result.passed ? "ok" : "error");
+      appendBadgeCell(row, passedLabel(result.passed), passedClass(result.passed));
       appendBadgeCell(row, actionLabels[result.action] || result.action || "-", actionClass(result.action));
       appendCell(row, result.error || reasonLabels[result.reason] || result.reason || "-");
       fragment.appendChild(row);
@@ -297,6 +318,40 @@
       return "warn";
     }
     return "";
+  }
+
+  function passedLabel(passed) {
+    if (passed === true) {
+      return "通过";
+    }
+    if (passed === false) {
+      return "未通过";
+    }
+    return "-";
+  }
+
+  function passedClass(passed) {
+    if (passed === true) {
+      return "ok";
+    }
+    if (passed === false) {
+      return "error";
+    }
+    return "";
+  }
+
+  function isSnapshot(payload) {
+    return Boolean(payload && typeof payload === "object" && typeof payload.status === "string");
+  }
+
+  function actionErrorMessage(action, response, payload) {
+    if (payload && typeof payload === "object" && typeof payload.error === "string" && payload.error) {
+      return payload.error;
+    }
+    if (typeof payload === "string" && payload.trim()) {
+      return payload.trim();
+    }
+    return `${action} failed: ${response.status}`;
   }
 
   function showError(message) {
