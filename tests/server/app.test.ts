@@ -96,6 +96,63 @@ describe("createApp", () => {
     await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
   });
 
+  it("rejects start while a stopped run and stop cleanup are still settling", async () => {
+    const state = new TaskStateStore();
+    const runDeferred = deferred<void>();
+    const stopDeferred = deferred<void>();
+    const run = vi.fn(() => runDeferred.promise);
+    const stop = vi.fn(() => stopDeferred.promise);
+    const baseUrl = await listen(createApp({ state, runner: { run, stop } }));
+
+    const first = await fetch(`${baseUrl}/api/start`, { method: "POST" });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    const stopResponse = await fetch(`${baseUrl}/api/stop`, { method: "POST" });
+    const second = await fetch(`${baseUrl}/api/start`, { method: "POST" });
+
+    expect(first.status).toBe(202);
+    expect(stopResponse.status).toBe(202);
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toEqual({
+      error: "Task is stopping; wait before starting a new run"
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+
+    runDeferred.resolve();
+    stopDeferred.resolve();
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+
+    const third = await fetch(`${baseUrl}/api/start`, { method: "POST" });
+    expect(third.status).toBe(202);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps rejecting start until stop cleanup settles", async () => {
+    const state = new TaskStateStore();
+    const runDeferred = deferred<void>();
+    const stopDeferred = deferred<void>();
+    const run = vi.fn(() => runDeferred.promise);
+    const stop = vi.fn(() => stopDeferred.promise);
+    const baseUrl = await listen(createApp({ state, runner: { run, stop } }));
+
+    await fetch(`${baseUrl}/api/start`, { method: "POST" });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    await fetch(`${baseUrl}/api/stop`, { method: "POST" });
+    runDeferred.resolve();
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+
+    const blocked = await fetch(`${baseUrl}/api/start`, { method: "POST" });
+    expect(blocked.status).toBe(409);
+    await expect(blocked.json()).resolves.toEqual({
+      error: "Task is stopping; wait before starting a new run"
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+
+    stopDeferred.resolve();
+    const accepted = await fetch(`${baseUrl}/api/start`, { method: "POST" });
+    expect(accepted.status).toBe(202);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
   it("pause and stop endpoints update the shared state", async () => {
     const state = new TaskStateStore();
     state.start();
@@ -151,4 +208,18 @@ async function listenServer(server: http.Server): Promise<string> {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
   const address = server.address() as AddressInfo;
   return `http://127.0.0.1:${address.port}`;
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve: (value: T | PromiseLike<T>) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
 }
