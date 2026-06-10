@@ -1,0 +1,243 @@
+import type { Locator, Page } from "playwright";
+import { describe, expect, it, vi } from "vitest";
+import { TaskStateStore } from "../../src/domain/task-state.js";
+import { SheinProcessor, readRowPrices } from "../../src/shein/shein-processor.js";
+
+type FakeLocatorOptions = {
+  text?: string | string[] | null;
+  visible?: boolean;
+  disabled?: boolean;
+  click?: () => void;
+  children?: Record<string, FakeLocator[]>;
+};
+
+class FakeLocator {
+  readonly text: string | null;
+  readonly visible: boolean;
+  readonly disabled: boolean;
+  private readonly clickHandler?: () => void;
+  private readonly children: Record<string, FakeLocator[]>;
+  private readonly items?: FakeLocator[];
+  private readonly textValues?: string[];
+  private textIndex = 0;
+
+  constructor(options: FakeLocatorOptions | FakeLocator[] = {}) {
+    if (Array.isArray(options)) {
+      this.text = null;
+      this.visible = false;
+      this.disabled = false;
+      this.items = options;
+      this.children = {};
+      return;
+    }
+
+    this.textValues = Array.isArray(options.text) ? options.text : undefined;
+    this.text = Array.isArray(options.text) ? null : (options.text ?? null);
+    this.visible = options.visible ?? true;
+    this.disabled = options.disabled ?? false;
+    this.clickHandler = options.click;
+    this.children = options.children ?? {};
+  }
+
+  async textContent(): Promise<string | null> {
+    if (this.textValues) {
+      const value = this.textValues[Math.min(this.textIndex, this.textValues.length - 1)] ?? null;
+      this.textIndex += 1;
+      return value;
+    }
+
+    return this.text;
+  }
+
+  async count(): Promise<number> {
+    return this.items?.length ?? 1;
+  }
+
+  nth(index: number): FakeLocator {
+    if (!this.items) {
+      return index === 0 ? this : new FakeLocator({ visible: false });
+    }
+
+    return this.items[index] ?? new FakeLocator({ visible: false });
+  }
+
+  first(): FakeLocator {
+    return this.nth(0);
+  }
+
+  locator(selector: string): FakeLocator {
+    return new FakeLocator(this.children[selector] ?? []);
+  }
+
+  async isVisible(): Promise<boolean> {
+    return this.items ? this.items.some((item) => item.visible) : this.visible;
+  }
+
+  async isDisabled(): Promise<boolean> {
+    return this.disabled;
+  }
+
+  async click(): Promise<void> {
+    if (!this.visible || this.disabled) {
+      throw new Error("cannot click locator");
+    }
+    this.clickHandler?.();
+  }
+
+  async getAttribute(): Promise<string | null> {
+    return null;
+  }
+}
+
+class FakePage {
+  constructor(
+    private readonly pages: FakeLocator[][],
+    private readonly options: { nextDisabled?: boolean } = {}
+  ) {}
+
+  private pageIndex = 0;
+
+  getByText(pattern: RegExp): FakeLocator {
+    if (/新品议价|New Product Negotiation/.test(pattern.source)) {
+      return new FakeLocator({ visible: true });
+    }
+
+    return new FakeLocator({ visible: false });
+  }
+
+  locator(selector: string): FakeLocator {
+    if (selector === "tbody tr") {
+      return new FakeLocator(this.pages[this.pageIndex] ?? []);
+    }
+
+    if (selector === "button:has-text('下一页'), button:has-text('Next')") {
+      const canAdvance = this.pageIndex < this.pages.length - 1;
+      return new FakeLocator([
+        new FakeLocator({
+          visible: canAdvance || this.options.nextDisabled === true,
+          disabled: !canAdvance || this.options.nextDisabled === true,
+          click: () => {
+            this.pageIndex += 1;
+          }
+        })
+      ]);
+    }
+
+    return new FakeLocator([]);
+  }
+}
+
+const retry = { attempts: 1, delayMs: 0 };
+
+describe("readRowPrices", () => {
+  it("extracts labelled prices with currency symbols separated from numbers", async () => {
+    const row = new FakeLocator({
+      text: "商品ID SKU-1 报价 ¥100 当前销售价 ¥62.99 官方建议价 ¥8"
+    });
+
+    await expect(readRowPrices(row as unknown as Locator)).resolves.toEqual({
+      quotedPrice: 100,
+      currentSellingPrice: 62.99,
+      officialSuggestedPrice: 8
+    });
+  });
+
+  it("returns null when any labelled price is missing", async () => {
+    const row = new FakeLocator({ text: "报价 ¥100 当前销售价 ¥62.99" });
+
+    await expect(readRowPrices(row as unknown as Locator)).resolves.toBeNull();
+  });
+});
+
+describe("SheinProcessor", () => {
+  it("records a passing product and does not click reject", async () => {
+    const rejectClick = vi.fn();
+    const state = new TaskStateStore();
+    const row = makeRow("商品ID SKU-1 报价 ¥100 当前销售价 ¥64 官方建议价 ¥1", rejectClick);
+    const processor = new SheinProcessor(new FakePage([[row]]) as unknown as Page, state, retry);
+
+    await processor.processAllPages();
+
+    expect(rejectClick).not.toHaveBeenCalled();
+    expect(state.snapshot().results).toMatchObject([
+      { productId: "SKU-1", action: "recorded", passed: true }
+    ]);
+  });
+
+  it("clicks reject and records a failed product as rejected", async () => {
+    const rejectClick = vi.fn();
+    const state = new TaskStateStore();
+    const row = makeRow("商品ID SKU-2 报价 ¥100 当前销售价 ¥62.99 官方建议价 ¥7.99", rejectClick);
+    const processor = new SheinProcessor(new FakePage([[row]]) as unknown as Page, state, retry);
+
+    await processor.processAllPages();
+
+    expect(rejectClick).toHaveBeenCalledTimes(1);
+    expect(state.snapshot().results).toMatchObject([
+      { productId: "SKU-2", action: "rejected", passed: false }
+    ]);
+  });
+
+  it("pauses and logs when price data is unreadable without clicking reject", async () => {
+    const rejectClick = vi.fn();
+    const state = new TaskStateStore();
+    const row = makeRow("商品ID SKU-3 报价 ¥100 当前销售价 -- 官方建议价 ¥7.99", rejectClick);
+    const processor = new SheinProcessor(new FakePage([[row]]) as unknown as Page, state, retry);
+
+    await processor.processAllPages();
+
+    const snapshot = state.snapshot();
+    expect(rejectClick).not.toHaveBeenCalled();
+    expect(snapshot.status).toBe("paused");
+    expect(snapshot.logs).toMatchObject([{ level: "error", phase: "shein" }]);
+    expect(snapshot.results).toHaveLength(0);
+  });
+
+  it("retries unreadable price reads using configured attempts", async () => {
+    const state = new TaskStateStore();
+    const row = makeRow(
+      [
+        "商品ID SKU-6 报价 -- 当前销售价 -- 官方建议价 --",
+        "商品ID SKU-6 报价 ¥100 当前销售价 ¥64 官方建议价 ¥1"
+      ],
+      vi.fn()
+    );
+    const processor = new SheinProcessor(
+      new FakePage([[row]]) as unknown as Page,
+      state,
+      { attempts: 2, delayMs: 0 }
+    );
+
+    await processor.processAllPages();
+
+    expect(state.snapshot().results).toMatchObject([
+      { productId: "SKU-6", action: "recorded", passed: true }
+    ]);
+  });
+
+  it("stops pagination when the next button is disabled or unavailable", async () => {
+    const state = new TaskStateStore();
+    const firstPageRow = makeRow("商品ID SKU-4 报价 ¥100 当前销售价 ¥64 官方建议价 ¥1", vi.fn());
+    const secondPageRow = makeRow("商品ID SKU-5 报价 ¥100 当前销售价 ¥64 官方建议价 ¥1", vi.fn());
+    const processor = new SheinProcessor(
+      new FakePage([[firstPageRow], [secondPageRow]], { nextDisabled: true }) as unknown as Page,
+      state,
+      retry
+    );
+
+    await processor.processAllPages();
+
+    expect(state.snapshot().results).toMatchObject([{ productId: "SKU-4" }]);
+  });
+});
+
+function makeRow(text: string | string[], rejectClick: () => void): FakeLocator {
+  return new FakeLocator({
+    text,
+    children: {
+      "button:has-text('拒绝'), button:has-text('驳回'), button:has-text('Reject')": [
+        new FakeLocator({ visible: true, click: rejectClick })
+      ]
+    }
+  });
+}
