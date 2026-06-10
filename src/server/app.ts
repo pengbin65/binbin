@@ -6,6 +6,7 @@ import type { TaskStateStore } from "../domain/task-state.js";
 
 export type RunnerLike = {
   run(): Promise<void>;
+  stop?: () => Promise<void>;
 };
 
 export type CreateAppOptions = {
@@ -56,6 +57,12 @@ export function createApp(options: CreateAppOptions): Express {
   app.post("/api/stop", (_request, response) => {
     options.state.requestStop();
     response.status(202).json(options.state.snapshot());
+
+    void Promise.resolve()
+      .then(() => options.runner.stop?.())
+      .catch((error: unknown) => {
+        options.state.log("server", `Runner stop failed: ${formatErrorMessage(error)}`, "warn");
+      });
   });
 
   app.use(express.static(options.publicDir ?? path.resolve(process.cwd(), "public")));

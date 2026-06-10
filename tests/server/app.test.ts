@@ -73,18 +73,20 @@ describe("createApp", () => {
   it("pause and stop endpoints update the shared state", async () => {
     const state = new TaskStateStore();
     state.start();
-    const baseUrl = await listen(createApp({ state, runner: { run: vi.fn() } }));
+    const stop = vi.fn(async () => undefined);
+    const baseUrl = await listen(createApp({ state, runner: { run: vi.fn(), stop } }));
 
     const pause = await fetch(`${baseUrl}/api/pause`, { method: "POST" });
-    const stop = await fetch(`${baseUrl}/api/stop`, { method: "POST" });
+    const stopResponse = await fetch(`${baseUrl}/api/stop`, { method: "POST" });
 
     expect(pause.status).toBe(202);
-    expect(stop.status).toBe(202);
+    expect(stopResponse.status).toBe(202);
     expect(state.snapshot()).toMatchObject({
       pauseRequested: true,
       stopRequested: true,
       status: "stopped"
     });
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
   });
 });
 
