@@ -145,6 +145,23 @@ class FakePage {
   }
 }
 
+class StopOnSecondVerificationPage extends FakePage {
+  private verificationCount = 0;
+
+  constructor(pages: FakeLocator[][], private readonly state: TaskStateStore) {
+    super(pages);
+  }
+
+  override getByText(pattern: RegExp): FakeLocator {
+    this.verificationCount += 1;
+    if (this.verificationCount === 2) {
+      this.state.requestStop();
+    }
+
+    return super.getByText(pattern);
+  }
+}
+
 const retry = { attempts: 1, delayMs: 0 };
 
 describe("readRowPrices", () => {
@@ -200,6 +217,26 @@ describe("SheinProcessor", () => {
     expect(state.snapshot().results).toMatchObject([
       { productId: "SKU-2", action: "rejected", passed: false }
     ]);
+  });
+
+  it("does not click reject when stop is requested during pre-reject page verification", async () => {
+    const rejectClick = vi.fn();
+    const state = new TaskStateStore();
+    const row = makeRow(
+      "\u5546\u54c1ID SKU-10 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a562.99 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a57.99",
+      rejectClick
+    );
+    const page = new StopOnSecondVerificationPage([[row]], state);
+    const processor = new SheinProcessor(page as unknown as Page, state, retry);
+
+    await processor.processAllPages();
+
+    expect(rejectClick).not.toHaveBeenCalled();
+    expect(state.snapshot()).toMatchObject({
+      status: "stopped",
+      stopRequested: true,
+      results: []
+    });
   });
 
   it("pauses and logs when price data is unreadable without clicking reject", async () => {

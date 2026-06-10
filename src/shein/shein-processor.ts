@@ -139,13 +139,24 @@ export class SheinProcessor {
     }
 
     await this.withRetry(() => this.verifyCurrentPage(), "verify SHEIN page before reject");
-    await this.withRetry(async () => {
+    if (this.state.shouldStop()) {
+      return;
+    }
+
+    const rejected = await this.withRetry(async () => {
       const rejectButton = await findVisible(row.locator(REJECT_BUTTON_SELECTOR), { propagateCountErrors: true });
       if (!rejectButton) {
         throw new Error("visible reject button not found");
       }
+      if (this.state.shouldStop()) {
+        return false;
+      }
       await rejectButton.click();
+      return true;
     }, "reject failed product");
+    if (!rejected || this.state.shouldStop()) {
+      return;
+    }
     this.rejectedProductIds.add(productId);
 
     this.state.recordResult({
