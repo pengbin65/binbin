@@ -1,1 +1,8 @@
 .worktrees/
+node_modules/
+dist/
+.env
+*.log
+runtime/
+playwright-report/
+test-results/
