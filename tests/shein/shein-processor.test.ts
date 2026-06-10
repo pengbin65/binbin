@@ -8,6 +8,7 @@ type FakeLocatorOptions = {
   textError?: Error;
   visible?: boolean;
   disabled?: boolean | (() => boolean);
+  count?: number | (() => number);
   countError?: Error;
   click?: () => void | Promise<void>;
   children?: Record<string, FakeLocator[]>;
@@ -22,6 +23,7 @@ class FakeLocator {
   private readonly items?: FakeLocator[];
   private readonly textValues?: string[];
   private readonly textError?: Error;
+  private readonly countValue?: number | (() => number);
   private readonly countError?: Error;
   private textIndex = 0;
 
@@ -42,6 +44,7 @@ class FakeLocator {
     this.clickHandler = options.click;
     this.children = options.children ?? {};
     this.textError = options.textError;
+    this.countValue = options.count;
     this.countError = options.countError;
   }
 
@@ -62,6 +65,10 @@ class FakeLocator {
   async count(): Promise<number> {
     if (this.countError) {
       throw this.countError;
+    }
+
+    if (this.countValue !== undefined) {
+      return typeof this.countValue === "function" ? this.countValue() : this.countValue;
     }
 
     return this.items?.length ?? 1;
@@ -105,11 +112,11 @@ class FakeLocator {
 
 class FakePage {
   constructor(
-    private readonly pages: FakeLocator[][],
+    protected readonly pages: FakeLocator[][],
     private readonly options: { nextDisabled?: boolean; nextLocator?: FakeLocator } = {}
   ) {}
 
-  private pageIndex = 0;
+  protected pageIndex = 0;
 
   getByText(pattern: RegExp): FakeLocator {
     if (/新品议价|New Product Negotiation/.test(pattern.source)) {
@@ -176,6 +183,31 @@ class PauseOnSecondVerificationPage extends FakePage {
     }
 
     return super.getByText(pattern);
+  }
+}
+
+class TransientMissingNextButtonPage extends FakePage {
+  private nextCountReads = 0;
+
+  override locator(selector: string): FakeLocator {
+    if (selector.includes("Next")) {
+      return new FakeLocator({
+        count: () => {
+          if (this.pageIndex >= this.pages.length - 1) {
+            return 0;
+          }
+          this.nextCountReads += 1;
+          return this.nextCountReads === 1 ? 0 : 1;
+        },
+        visible: true,
+        disabled: false,
+        click: () => {
+          this.pageIndex += 1;
+        }
+      });
+    }
+
+    return super.locator(selector);
   }
 }
 
@@ -430,6 +462,40 @@ describe("SheinProcessor", () => {
       status: "completed",
       results: [{ productId: "SKU-13" }]
     });
+  });
+
+  it("retries a transiently absent next page button before completing pagination", async () => {
+    const state = new TaskStateStore();
+    const firstPageRow = makeRow(
+      "\u5546\u54c1ID SKU-19 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a564 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a51",
+      vi.fn()
+    );
+    const secondPageRow = makeRow(
+      "\u5546\u54c1ID SKU-20 \u62a5\u4ef7 \u00a5100 \u5f53\u524d\u9500\u552e\u4ef7 \u00a564 \u5b98\u65b9\u5efa\u8bae\u4ef7 \u00a51",
+      vi.fn()
+    );
+    const processor = new SheinProcessor(
+      new TransientMissingNextButtonPage([[firstPageRow], [secondPageRow]]) as unknown as Page,
+      state,
+      { attempts: 2, delayMs: 0 }
+    );
+
+    await processor.processAllPages();
+
+    expect(state.snapshot()).toMatchObject({
+      status: "completed",
+      results: [
+        { productId: "SKU-19" },
+        { productId: "SKU-20" }
+      ]
+    });
+    expect(state.snapshot().logs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: "warn",
+        phase: "shein",
+        message: "Next page button absent on attempt 1"
+      })
+    ]));
   });
 
   it("pauses and logs when reject click retry attempts are exhausted", async () => {

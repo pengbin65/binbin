@@ -225,7 +225,7 @@ export class SheinProcessor {
 
   private async advanceToNextPage(): Promise<boolean> {
     const nextButtons = this.page.locator(NEXT_PAGE_BUTTON_SELECTOR);
-    const nextButtonCount = await nextButtons.count();
+    const nextButtonCount = await this.countNextButtons(nextButtons);
     if (nextButtonCount === 0) {
       return false;
     }
@@ -252,6 +252,23 @@ export class SheinProcessor {
     await waitForLoadStateIfAvailable(this.page);
     await this.verifyCurrentPage();
     return true;
+  }
+
+  private async countNextButtons(nextButtons: Locator): Promise<number> {
+    const attempts = Math.max(1, this.retry.attempts);
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      this.throwIfInterrupted();
+      const count = await nextButtons.count();
+      if (count > 0 || attempt === attempts) {
+        return count;
+      }
+
+      this.state.log(PHASE, `Next page button absent on attempt ${attempt}`, "warn");
+      await delay(this.retry.delayMs);
+    }
+
+    return 0;
   }
 
   private async withRetry<T>(operation: () => Promise<T>, label: string): Promise<T> {
