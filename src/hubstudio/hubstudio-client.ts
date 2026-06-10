@@ -62,7 +62,7 @@ export class HubstudioClient {
     if (!env) {
       throw new Error(`Hubstudio profile not found: ${name}`);
     }
-    return { id: env.containerCode, name: env.containerName };
+    return { id: String(env.containerCode), name: env.containerName };
   }
 
   async startProfile(profileId: string): Promise<HubstudioBrowserConnection> {
@@ -90,8 +90,7 @@ export class HubstudioClient {
     const port = data?.debuggingPort;
     const portNumber = typeof port === "number" ? port : typeof port === "string" ? Number(port) : NaN;
     if (Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535) {
-      const baseUrl = new URL(this.apiBase);
-      return `${baseUrl.protocol}//${baseUrl.hostname}:${portNumber}`;
+      return `http://127.0.0.1:${portNumber}`;
     }
 
     return null;
@@ -123,13 +122,13 @@ export class HubstudioClient {
 }
 
 type HubstudioEnv = {
-  containerCode: string;
+  containerCode: string | number;
   containerName: string;
 };
 
 function isHubstudioEnv(value: unknown): value is HubstudioEnv {
   return typeof value === "object"
     && value !== null
-    && typeof (value as HubstudioEnv).containerCode === "string"
+    && (typeof (value as HubstudioEnv).containerCode === "string" || typeof (value as HubstudioEnv).containerCode === "number")
     && typeof (value as HubstudioEnv).containerName === "string";
 }

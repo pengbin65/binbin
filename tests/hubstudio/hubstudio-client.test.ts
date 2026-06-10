@@ -8,14 +8,14 @@ describe("HubstudioClient", () => {
         data: {
           list: [
             { containerCode: "other", containerName: "other profile" },
-            { containerCode: "profile-1", containerName: "profile-name" }
+            { containerCode: 12345, containerName: "profile-name" }
           ]
         }
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: { debuggingPort: 9222 } }), { status: 200 }));
 
     const client = new HubstudioClient({
-      apiBase: " http://127.0.0.1:6873/api-root/ ",
+      apiBase: " https://api.example.test/api-root/ ",
       apiToken: "token",
       fetchImpl: fetchMock
     });
@@ -23,12 +23,12 @@ describe("HubstudioClient", () => {
     const profile = await client.findProfileByName("profile-name");
     const browser = await client.startProfile(profile.id);
 
-    expect(profile).toEqual({ id: "profile-1", name: "profile-name" });
+    expect(profile).toEqual({ id: "12345", name: "profile-name" });
     expect(browser.wsEndpoint).toBe("http://127.0.0.1:9222");
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [firstUrl, firstInit] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(firstUrl).toBe("http://127.0.0.1:6873/api-root/api/v1/env/list");
+    expect(firstUrl).toBe("https://api.example.test/api-root/api/v1/env/list");
     expect(firstInit.method).toBe("POST");
     expect(JSON.parse(firstInit.body as string)).toEqual({
       current: 1,
@@ -40,10 +40,10 @@ describe("HubstudioClient", () => {
     expect(new Headers(firstInit.headers).get("content-type")).toBe("application/json");
 
     const [secondUrl, secondInit] = fetchMock.mock.calls[1] as [string, RequestInit];
-    expect(secondUrl).toBe("http://127.0.0.1:6873/api-root/api/v1/browser/start");
+    expect(secondUrl).toBe("https://api.example.test/api-root/api/v1/browser/start");
     expect(secondInit.method).toBe("POST");
     expect(JSON.parse(secondInit.body as string)).toEqual({
-      containerCode: "profile-1",
+      containerCode: "12345",
       isWebDriverReadOnlyMode: false,
       isHeadless: false
     });
