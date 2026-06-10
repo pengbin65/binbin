@@ -45,6 +45,19 @@ describe("HubstudioClient", () => {
     await expect(client.findProfileByName("女装希音1")).rejects.toThrow(/expected .*data.* array/i);
   });
 
+  it("throws a clear endpoint error when start response endpoint is not a string", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { wsEndpoint: 123 } }), { status: 200 }));
+
+    const client = new HubstudioClient({
+      apiBase: "http://127.0.0.1:6873",
+      apiToken: "",
+      fetchImpl: fetchMock
+    });
+
+    await expect(client.startProfile("profile-1")).rejects.toThrow(/browser .*endpoint string/i);
+  });
+
   it("includes status path and response body snippet in non-OK errors", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("upstream failure: token expired and request denied", {

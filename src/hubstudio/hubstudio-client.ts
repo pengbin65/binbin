@@ -19,10 +19,10 @@ type HubstudioListResponse = {
 
 type HubstudioStartResponse = {
   data?: {
-    wsEndpoint?: string;
-    ws_endpoint?: string;
-    debugUrl?: string;
-    debug_url?: string;
+    wsEndpoint?: unknown;
+    ws_endpoint?: unknown;
+    debugUrl?: unknown;
+    debug_url?: unknown;
   };
 };
 
@@ -56,8 +56,8 @@ export class HubstudioClient {
       method: "POST"
     });
     const endpoint = response.data?.wsEndpoint ?? response.data?.ws_endpoint ?? response.data?.debugUrl ?? response.data?.debug_url;
-    if (!endpoint) {
-      throw new Error("Hubstudio did not return a browser websocket endpoint");
+    if (typeof endpoint !== "string" || endpoint.trim() === "") {
+      throw new Error("Hubstudio did not return a browser endpoint string");
     }
     return { wsEndpoint: endpoint };
   }
