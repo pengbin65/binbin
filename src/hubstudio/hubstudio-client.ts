@@ -14,7 +14,7 @@ export type HubstudioClientOptions = {
 };
 
 type HubstudioListResponse = {
-  data?: Array<{ id: string; name: string }>;
+  data?: unknown;
 };
 
 type HubstudioStartResponse = {
@@ -32,14 +32,19 @@ export class HubstudioClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: HubstudioClientOptions) {
-    this.apiBase = options.apiBase.replace(/\/$/, "");
+    const trimmedBase = options.apiBase.trim();
+    this.apiBase = trimmedBase.endsWith("/") ? trimmedBase : `${trimmedBase}/`;
     this.apiToken = options.apiToken;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   async findProfileByName(name: string): Promise<HubstudioProfile> {
-    const response = await this.request<HubstudioListResponse>(`/api/v1/profiles?name=${encodeURIComponent(name)}`);
-    const profile = response.data?.find((item) => item.name === name);
+    const response = await this.request<HubstudioListResponse>(`api/v1/profiles?name=${encodeURIComponent(name)}`);
+    if (!Array.isArray(response.data)) {
+      throw new Error("Hubstudio profile response shape invalid: expected data array");
+    }
+
+    const profile = response.data.find((item): item is HubstudioProfile => isHubstudioProfile(item) && item.name === name);
     if (!profile) {
       throw new Error(`Hubstudio profile not found: ${name}`);
     }
@@ -47,7 +52,7 @@ export class HubstudioClient {
   }
 
   async startProfile(profileId: string): Promise<HubstudioBrowserConnection> {
-    const response = await this.request<HubstudioStartResponse>(`/api/v1/profiles/${encodeURIComponent(profileId)}/start`, {
+    const response = await this.request<HubstudioStartResponse>(`api/v1/profiles/${encodeURIComponent(profileId)}/start`, {
       method: "POST"
     });
     const endpoint = response.data?.wsEndpoint ?? response.data?.ws_endpoint ?? response.data?.debugUrl ?? response.data?.debug_url;
@@ -59,15 +64,28 @@ export class HubstudioClient {
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
-    headers.set("content-type", "application/json");
+    headers.set("accept", "application/json");
+    if (init.body) {
+      headers.set("content-type", "application/json");
+    }
     if (this.apiToken) {
       headers.set("authorization", `Bearer ${this.apiToken}`);
     }
 
-    const response = await this.fetchImpl(`${this.apiBase}${path}`, { ...init, headers });
+    const relativePath = path.replace(/^\/+/, "");
+    const response = await this.fetchImpl(new URL(relativePath, this.apiBase).toString(), { ...init, headers });
     if (!response.ok) {
-      throw new Error(`Hubstudio API failed: ${response.status} ${response.statusText}`);
+      const bodySnippet = await response.text().catch(() => "");
+      const snippetSuffix = bodySnippet ? ` body: ${bodySnippet.slice(0, 200)}` : "";
+      throw new Error(`Hubstudio API failed: ${response.status} ${response.statusText} path: /${relativePath}${snippetSuffix}`);
     }
     return response.json() as Promise<T>;
   }
+}
+
+function isHubstudioProfile(value: unknown): value is HubstudioProfile {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as HubstudioProfile).id === "string"
+    && typeof (value as HubstudioProfile).name === "string";
 }
