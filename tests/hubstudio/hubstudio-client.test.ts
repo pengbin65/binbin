@@ -2,10 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 import { HubstudioClient } from "../../src/hubstudio/hubstudio-client.js";
 
 describe("HubstudioClient", () => {
-  it("searches profile by name and starts it", async () => {
+  it("searches Hubstudio env by name and starts its browser", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "profile-1", name: "女装希音1" }] }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { wsEndpoint: "ws://127.0.0.1:9222/devtools/browser/abc" } }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          list: [
+            { containerCode: "other", containerName: "other profile" },
+            { containerCode: "profile-1", containerName: "profile-name" }
+          ]
+        }
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { debuggingPort: 9222 } }), { status: 200 }));
 
     const client = new HubstudioClient({
       apiBase: " http://127.0.0.1:6873/api-root/ ",
@@ -13,28 +20,41 @@ describe("HubstudioClient", () => {
       fetchImpl: fetchMock
     });
 
-    const profile = await client.findProfileByName("女装希音1");
+    const profile = await client.findProfileByName("profile-name");
     const browser = await client.startProfile(profile.id);
 
-    expect(profile).toEqual({ id: "profile-1", name: "女装希音1" });
-    expect(browser.wsEndpoint).toBe("ws://127.0.0.1:9222/devtools/browser/abc");
+    expect(profile).toEqual({ id: "profile-1", name: "profile-name" });
+    expect(browser.wsEndpoint).toBe("http://127.0.0.1:9222");
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [firstUrl, firstInit] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(firstUrl).toBe("http://127.0.0.1:6873/api-root/api/v1/profiles?name=%E5%A5%B3%E8%A3%85%E5%B8%8C%E9%9F%B31");
+    expect(firstUrl).toBe("http://127.0.0.1:6873/api-root/api/v1/env/list");
+    expect(firstInit.method).toBe("POST");
+    expect(JSON.parse(firstInit.body as string)).toEqual({
+      current: 1,
+      size: 200,
+      containerName: "profile-name"
+    });
     expect(new Headers(firstInit.headers).get("accept")).toBe("application/json");
     expect(new Headers(firstInit.headers).get("authorization")).toBe("Bearer token");
-    expect(new Headers(firstInit.headers).has("content-type")).toBe(false);
+    expect(new Headers(firstInit.headers).get("content-type")).toBe("application/json");
 
     const [secondUrl, secondInit] = fetchMock.mock.calls[1] as [string, RequestInit];
-    expect(secondUrl).toBe("http://127.0.0.1:6873/api-root/api/v1/profiles/profile-1/start");
+    expect(secondUrl).toBe("http://127.0.0.1:6873/api-root/api/v1/browser/start");
     expect(secondInit.method).toBe("POST");
+    expect(JSON.parse(secondInit.body as string)).toEqual({
+      containerCode: "profile-1",
+      isWebDriverReadOnlyMode: false,
+      isHeadless: false
+    });
     expect(new Headers(secondInit.headers).get("authorization")).toBe("Bearer token");
   });
 
-  it("throws a clear shape error when profile data is not an array", async () => {
+  it("throws a clear shape error when env list data is not an array", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { id: "profile-1", name: "女装希音1" } }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { list: { containerCode: "profile-1", containerName: "profile-name" } }
+      }), { status: 200 }));
 
     const client = new HubstudioClient({
       apiBase: "http://127.0.0.1:6873",
@@ -42,12 +62,12 @@ describe("HubstudioClient", () => {
       fetchImpl: fetchMock
     });
 
-    await expect(client.findProfileByName("女装希音1")).rejects.toThrow(/expected .*data.* array/i);
+    await expect(client.findProfileByName("profile-name")).rejects.toThrow(/expected .*data\.list.* array/i);
   });
 
-  it("throws a clear endpoint error when start response endpoint is not a string", async () => {
+  it("throws a clear endpoint error when start response has no endpoint or valid debuggingPort", async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { wsEndpoint: 123 } }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { debuggingPort: 99999 } }), { status: 200 }));
 
     const client = new HubstudioClient({
       apiBase: "http://127.0.0.1:6873",
@@ -55,7 +75,24 @@ describe("HubstudioClient", () => {
       fetchImpl: fetchMock
     });
 
-    await expect(client.startProfile("profile-1")).rejects.toThrow(/browser .*endpoint string/i);
+    await expect(client.startProfile("profile-1")).rejects.toThrow(/browser .*endpoint string.*debuggingPort/i);
+  });
+
+  it("still accepts legacy endpoint aliases from start response", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { ws_endpoint: "ws://127.0.0.1:9222/devtools/browser/abc" }
+      }), { status: 200 }));
+
+    const client = new HubstudioClient({
+      apiBase: "http://127.0.0.1:6873",
+      apiToken: "",
+      fetchImpl: fetchMock
+    });
+
+    await expect(client.startProfile("profile-1")).resolves.toEqual({
+      wsEndpoint: "ws://127.0.0.1:9222/devtools/browser/abc"
+    });
   });
 
   it("includes status path and response body snippet in non-OK errors", async () => {
@@ -71,8 +108,8 @@ describe("HubstudioClient", () => {
       fetchImpl: fetchMock
     });
 
-    await expect(client.findProfileByName("女装希音1")).rejects.toThrow(
-      /401.*\/api\/v1\/profiles\?name=.*upstream failure: token expired/i
+    await expect(client.findProfileByName("profile-name")).rejects.toThrow(
+      /401.*\/api\/v1\/env\/list.*upstream failure: token expired/i
     );
   });
 });
