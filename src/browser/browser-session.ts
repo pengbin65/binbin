@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Locator, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 
 export type BrowserSessionOptions = {
   wsEndpoint: string;
@@ -24,13 +24,13 @@ export class BrowserSession {
     return context.pages()[0] ?? await context.newPage();
   }
 
-  async openShein(page: Page, url: string): Promise<LoginNavigationResult> {
-    const targetUrl = url.trim();
+  async openShein(page: Page, url?: string | null): Promise<LoginNavigationResult> {
+    const targetUrl = url?.trim();
     if (!targetUrl) {
       return {
         status: "needs_manual_login",
         page,
-        reason: "SHEIN new product negotiation URL is missing"
+        reason: "SHEIN_NEW_PRODUCT_NEGOTIATION_URL is not configured"
       };
     }
 
@@ -68,6 +68,10 @@ export class BrowserSession {
   }
 }
 
-async function isVisible(locator: Locator): Promise<boolean> {
+type VisibleLocator = {
+  isVisible(): Promise<boolean>;
+};
+
+async function isVisible(locator: VisibleLocator): Promise<boolean> {
   return locator.isVisible().catch(() => false);
 }
