@@ -132,6 +132,23 @@ describe("BrowserSession.openShein", () => {
     expect(result.status).toBe("ready");
   });
 
+  it("clicks the price adjustment entry even when the commodity list heading is not detected", async () => {
+    const targetMarker = { visible: false };
+    const entryClick = vi.fn(() => {
+      targetMarker.visible = true;
+    });
+    const page = new FakePage({
+      target: [targetMarker],
+      adjustmentEntry: [{ visible: true, click: entryClick }]
+    });
+    const session = new BrowserSession();
+
+    const result = await runOpenShein(session, page);
+
+    expect(entryClick).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("ready");
+  });
+
   it("returns manual login when verification is visible after login", async () => {
     const verification = { visible: false };
     const click = vi.fn(() => {
@@ -169,7 +186,7 @@ describe("BrowserSession.openShein", () => {
 async function runOpenShein(session: BrowserSession, page: FakePage) {
   const result = session.openShein(page as unknown as Page, "https://example.test/shein");
 
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 250; attempt += 1) {
     await vi.advanceTimersByTimeAsync(100);
   }
 

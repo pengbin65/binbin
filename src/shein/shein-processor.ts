@@ -18,6 +18,8 @@ type ProductIdentity = {
 const TARGET_PAGE_TEXT_PATTERN = /新品议价|价格调整|New Product Negotiation|Price Adjustment/i;
 const ROW_SELECTOR = "tbody tr";
 const REJECT_BUTTON_SELECTOR = "button:has-text('拒绝'), button:has-text('驳回'), button:has-text('Reject')";
+const ROW_CHECKBOX_SELECTOR = "label:has(input[type='checkbox']), input[type='checkbox'], .arco-checkbox, .arco-checkbox-mask";
+const BATCH_CONFIRM_BUTTON_SELECTOR = "button:has-text('批量确认价格'), button:has-text('Batch confirm')";
 const NEXT_PAGE_BUTTON_SELECTOR = "button:has-text('下一页'), button:has-text('Next')";
 const PHASE = "shein";
 
@@ -27,9 +29,10 @@ export async function readRowPrices(row: Pick<Locator, "textContent">): Promise<
     return null;
   }
 
-  const quotedPrice = extractLabelledPrice(text, "报价");
-  const currentSellingPrice = extractLabelledPrice(text, "当前销售价");
-  const officialSuggestedPrice = extractLabelledPrice(text, "官方建议价");
+  const quotedPrice = extractFirstLabelledPrice(text, ["报价记录", "报价"]);
+  const platformSuggestedPrice = extractFirstLabelledPrice(text, ["平台建议价"]);
+  const currentSellingPrice = platformSuggestedPrice ?? extractFirstLabelledPrice(text, ["当前销售价"]);
+  const officialSuggestedPrice = platformSuggestedPrice ?? extractFirstLabelledPrice(text, ["官方建议价"]);
 
   if (quotedPrice === null || currentSellingPrice === null || officialSuggestedPrice === null) {
     return null;
@@ -104,17 +107,30 @@ export class SheinProcessor {
   private async processCurrentPage(): Promise<void> {
     const rows = this.page.locator(ROW_SELECTOR);
     const count = await this.withRetry(() => rows.count(), "read product rows");
+    if (count === 0 && this.pageIndex === 1) {
+      this.state.log(PHASE, "No product rows found on first pricing page", "error");
+      this.state.requestPause();
+      this.state.markPaused();
+      return;
+    }
 
+    let selectedRows = 0;
     for (let index = 0; index < count; index += 1) {
-      await this.processRow(rows.nth(index), index);
+      if (await this.processRow(rows.nth(index), index)) {
+        selectedRows += 1;
+      }
 
       if (this.state.shouldStop() || this.state.shouldPause()) {
         return;
       }
     }
+
+    if (selectedRows > 0) {
+      await this.confirmSelectedRowsIfAvailable();
+    }
   }
 
-  private async processRow(row: Locator, index: number): Promise<void> {
+  private async processRow(row: Locator, index: number): Promise<boolean> {
     const prices = await this.withRetry(async () => {
       const rowPrices = await readRowPrices(row);
       if (!rowPrices) {
@@ -132,7 +148,7 @@ export class SheinProcessor {
     });
 
     if (!prices) {
-      return;
+      return false;
     }
 
     const decision = evaluatePricing(prices);
@@ -140,14 +156,15 @@ export class SheinProcessor {
     const { productId } = productIdentity;
 
     if (decision.passed) {
+      const selected = await this.selectRowForBatchConfirm(row);
       this.state.recordResult({
         productId,
         ...prices,
         ...decision,
-        action: "recorded",
+        action: selected ? "confirmed" : "recorded",
         reason: decision.reason
       });
-      return;
+      return selected;
     }
 
     if (this.rejectedProductIds.has(productId)) {
@@ -159,17 +176,17 @@ export class SheinProcessor {
         reason: decision.reason,
         error: "Duplicate failed product id already rejected in this run"
       });
-      return;
+      return false;
     }
 
     await this.withRetry(() => this.verifyCurrentPage(), "verify SHEIN page before reject");
     if (this.state.shouldStop()) {
-      return;
+      return false;
     }
 
     if (this.state.shouldPause()) {
       this.state.markPaused();
-      return;
+      return false;
     }
 
     const currentProductIdentity = await this.withRetry(
@@ -184,7 +201,7 @@ export class SheinProcessor {
       );
       this.state.requestPause();
       this.state.markPaused();
-      return;
+      return false;
     }
 
     const rejected = await this.withRetry(async () => {
@@ -203,7 +220,7 @@ export class SheinProcessor {
       return true;
     }, "reject failed product");
     if (!rejected || this.state.shouldStop()) {
-      return;
+      return false;
     }
     this.rejectedProductIds.add(productId);
 
@@ -214,6 +231,7 @@ export class SheinProcessor {
       action: "rejected",
       reason: decision.reason
     });
+    return false;
   }
 
   private async verifyCurrentPage(): Promise<void> {
@@ -221,6 +239,44 @@ export class SheinProcessor {
     if (!marker) {
       throw new Error("SHEIN New Product Negotiation page is not visible");
     }
+  }
+
+  private async selectRowForBatchConfirm(row: Locator): Promise<boolean> {
+    const checkbox = await findVisible(row.locator(ROW_CHECKBOX_SELECTOR));
+    if (!checkbox) {
+      return false;
+    }
+
+    if (this.state.shouldStop()) {
+      return false;
+    }
+
+    if (this.state.shouldPause()) {
+      this.state.markPaused();
+      return false;
+    }
+
+    await checkbox.click();
+    return true;
+  }
+
+  private async confirmSelectedRowsIfAvailable(): Promise<void> {
+    const confirmButton = await findVisible(this.page.locator(BATCH_CONFIRM_BUTTON_SELECTOR));
+    if (!confirmButton) {
+      return;
+    }
+
+    if (this.state.shouldStop()) {
+      return;
+    }
+
+    if (this.state.shouldPause()) {
+      this.state.markPaused();
+      return;
+    }
+
+    await confirmButton.click();
+    await waitForLoadStateIfAvailable(this.page);
   }
 
   private async advanceToNextPage(): Promise<boolean> {
@@ -372,6 +428,17 @@ function isSameProductIdentity(expected: ProductIdentity, actual: ProductIdentit
   }
 
   return expected.hasStableProductId || expected.rowText === actual.rowText;
+}
+
+function extractFirstLabelledPrice(text: string, labels: string[]): number | null {
+  for (const label of labels) {
+    const price = extractLabelledPrice(text, label);
+    if (price !== null) {
+      return price;
+    }
+  }
+
+  return null;
 }
 
 function extractLabelledPrice(text: string, label: string): number | null {

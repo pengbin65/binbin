@@ -25,7 +25,7 @@ export type ResultRow = {
   currentSellingPrice: number;
   officialSuggestedPrice: number;
   passed: boolean;
-  action: "recorded" | "rejected" | "skipped";
+  action: "recorded" | "confirmed" | "rejected" | "skipped";
   reason: string;
   error?: string;
 };

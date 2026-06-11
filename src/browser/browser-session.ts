@@ -5,7 +5,8 @@ export type LoginNavigationResult =
   | { status: "needs_manual_login"; page: Page; reason: string };
 
 const LOGIN_BUTTON_SELECTOR = "button:has-text('\u767b\u5f55'), button:has-text('Login')";
-const TARGET_PAGE_TEXT_PATTERN = /\u65b0\u54c1\u8bae\u4ef7|\u4ef7\u683c\u8c03\u6574|New Product Negotiation|Price Adjustment/i;
+const TARGET_PAGE_TEXT_PATTERN = /\u65b0\u54c1\u8bae\u4ef7|New Product Negotiation/i;
+const PRICE_ADJUSTMENT_PAGE_TEXT_PATTERN = /\u4ef7\u683c\u8c03\u6574|Price Adjustment/i;
 const COMMODITY_LIST_TEXT_PATTERN = /\u5546\u54c1\u5217\u8868|Commodity List/i;
 const PRICE_ADJUSTMENT_ENTRY_TEXT_PATTERN =
   /\u4ef7\u683c\u8c03\u6574\u5f85\u786e\u8ba4|\u4ef7\u683c\u8c03\u6574\u5f85\u529e|\u8bf7\u53ca\u65f6\u5904\u7406|Price Adjustment/i;
@@ -83,15 +84,11 @@ export class BrowserSession {
       };
     }
 
-    const onCommodityList = await findVisible(page.getByText(COMMODITY_LIST_TEXT_PATTERN), POST_LOGIN_VISIBILITY_TIMEOUT_MS);
-    if (onCommodityList) {
-      const adjustmentEntry = await findVisible(page.getByText(PRICE_ADJUSTMENT_ENTRY_TEXT_PATTERN), POST_LOGIN_VISIBILITY_TIMEOUT_MS);
-      if (!adjustmentEntry) {
-        return {
-          status: "needs_manual_login",
-          page,
-          reason: "SHEIN price adjustment entry is not visible on commodity list"
-        };
+    const adjustmentEntry = await findVisible(page.getByText(PRICE_ADJUSTMENT_ENTRY_TEXT_PATTERN), POST_LOGIN_VISIBILITY_TIMEOUT_MS);
+    if (adjustmentEntry) {
+      const targetBeforeClick = await findVisible(page.getByText(TARGET_PAGE_TEXT_PATTERN), BRIEF_VISIBILITY_TIMEOUT_MS);
+      if (targetBeforeClick) {
+        return { status: "ready", page };
       }
 
       try {
@@ -107,7 +104,10 @@ export class BrowserSession {
       await page.waitForLoadState("domcontentloaded", { timeout: NAVIGATION_TIMEOUT_MS }).catch(() => undefined);
     }
 
-    if (await findVisible(page.getByText(TARGET_PAGE_TEXT_PATTERN), POST_LOGIN_VISIBILITY_TIMEOUT_MS)) {
+    if (
+      await findVisible(page.getByText(TARGET_PAGE_TEXT_PATTERN), POST_LOGIN_VISIBILITY_TIMEOUT_MS)
+      || await findVisible(page.getByText(PRICE_ADJUSTMENT_PAGE_TEXT_PATTERN), POST_LOGIN_VISIBILITY_TIMEOUT_MS)
+    ) {
       return { status: "ready", page };
     }
 

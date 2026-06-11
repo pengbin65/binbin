@@ -113,7 +113,7 @@ class FakeLocator {
 class FakePage {
   constructor(
     protected readonly pages: FakeLocator[][],
-    private readonly options: { nextDisabled?: boolean; nextLocator?: FakeLocator } = {}
+    private readonly options: { nextDisabled?: boolean; nextLocator?: FakeLocator; batchConfirm?: FakeLocator } = {}
   ) {}
 
   protected pageIndex = 0;
@@ -133,6 +133,10 @@ class FakePage {
 
     if (this.options.nextLocator) {
       return this.options.nextLocator;
+    }
+
+    if (selector === "button:has-text('批量确认价格'), button:has-text('Batch confirm')") {
+      return this.options.batchConfirm ?? new FakeLocator([]);
     }
 
     if (selector === "button:has-text('下一页'), button:has-text('Next')") {
@@ -226,6 +230,18 @@ describe("readRowPrices", () => {
     });
   });
 
+  it("extracts pending task prices from quote record and platform suggested price columns", async () => {
+    const row = new FakeLocator({
+      text: "商品SPU z2606101857088045 SKU l9mq7yg1vtovqe 报价记录(USD) 60.00 平台建议价(USD) 8.05"
+    });
+
+    await expect(readRowPrices(row as unknown as Locator)).resolves.toEqual({
+      quotedPrice: 60,
+      currentSellingPrice: 8.05,
+      officialSuggestedPrice: 8.05
+    });
+  });
+
   it("returns null when any labelled price is missing", async () => {
     const row = new FakeLocator({ text: "报价 ¥100 当前销售价 ¥62.99" });
 
@@ -265,6 +281,31 @@ describe("SheinProcessor", () => {
     expect(rejectClick).toHaveBeenCalledTimes(1);
     expect(state.snapshot().results).toMatchObject([
       { productId: "SKU-2", action: "rejected", passed: false }
+    ]);
+  });
+
+  it("selects passing pending-task rows and clicks batch confirm price", async () => {
+    const checkboxClick = vi.fn();
+    const batchConfirmClick = vi.fn();
+    const state = new TaskStateStore();
+    const row = makePendingTaskRow(
+      "商品SPU z2606101857088045 SKU l9mq7yg1vtovqe 报价记录(USD) 60.00 平台建议价(USD) 8.05",
+      checkboxClick
+    );
+    const processor = new SheinProcessor(
+      new FakePage([[row]], {
+        batchConfirm: new FakeLocator([new FakeLocator({ visible: true, click: batchConfirmClick })])
+      }) as unknown as Page,
+      state,
+      retry
+    );
+
+    await processor.processAllPages();
+
+    expect(checkboxClick).toHaveBeenCalledTimes(1);
+    expect(batchConfirmClick).toHaveBeenCalledTimes(1);
+    expect(state.snapshot().results).toMatchObject([
+      { productId: "z2606101857088045", action: "confirmed", passed: true }
     ]);
   });
 
@@ -344,6 +385,24 @@ describe("SheinProcessor", () => {
     expect(snapshot.status).toBe("paused");
     expect(snapshot.logs).toMatchObject([{ level: "error", phase: "shein" }]);
     expect(snapshot.results).toHaveLength(0);
+  });
+
+  it("pauses instead of completing when the first page has no product rows", async () => {
+    const state = new TaskStateStore();
+    const processor = new SheinProcessor(new FakePage([[]]) as unknown as Page, state, retry);
+
+    await processor.processAllPages();
+
+    const snapshot = state.snapshot();
+    expect(snapshot.status).toBe("paused");
+    expect(snapshot.results).toHaveLength(0);
+    expect(snapshot.logs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        level: "error",
+        phase: "shein",
+        message: "No product rows found on first pricing page"
+      })
+    ]));
   });
 
   it("retries unreadable price reads using configured attempts", async () => {
@@ -632,6 +691,17 @@ function makeRow(text: string | string[], rejectClick: () => void | Promise<void
     children: {
       "button:has-text('拒绝'), button:has-text('驳回'), button:has-text('Reject')": [
         new FakeLocator({ visible: true, click: rejectClick })
+      ]
+    }
+  });
+}
+
+function makePendingTaskRow(text: string, checkboxClick: () => void | Promise<void>): FakeLocator {
+  return new FakeLocator({
+    text,
+    children: {
+      "label:has(input[type='checkbox']), input[type='checkbox'], .arco-checkbox, .arco-checkbox-mask": [
+        new FakeLocator({ visible: true, click: checkboxClick })
       ]
     }
   });

@@ -16,6 +16,7 @@
 
   const actionLabels = {
     recorded: "已记录",
+    confirmed: "已确认",
     rejected: "已拒绝",
     skipped: "已跳过"
   };
@@ -308,7 +309,7 @@
   }
 
   function actionClass(action) {
-    if (action === "recorded") {
+    if (action === "recorded" || action === "confirmed") {
       return "ok";
     }
     if (action === "rejected") {
