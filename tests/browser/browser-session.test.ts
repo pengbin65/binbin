@@ -48,6 +48,8 @@ class FakePage {
 
   constructor(private readonly candidates: {
     target?: FakeCandidate[];
+    commodityList?: FakeCandidate[];
+    adjustmentEntry?: FakeCandidate[];
     verification?: FakeCandidate[];
     login?: FakeCandidate[];
   } = {}) {}
@@ -55,6 +57,14 @@ class FakePage {
   getByText(pattern: RegExp): FakeLocator {
     if (/New Product Negotiation/.test(pattern.source)) {
       return new FakeLocator(this.candidates.target ?? []);
+    }
+
+    if (/Commodity List/.test(pattern.source)) {
+      return new FakeLocator(this.candidates.commodityList ?? []);
+    }
+
+    if (/Price Adjustment/.test(pattern.source)) {
+      return new FakeLocator(this.candidates.adjustmentEntry ?? []);
     }
 
     return new FakeLocator(this.candidates.verification ?? []);
@@ -101,6 +111,24 @@ describe("BrowserSession.openShein", () => {
     const result = await runOpenShein(session, page);
 
     expect(click).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("ready");
+  });
+
+  it("opens the price adjustment entry from the commodity list before returning ready", async () => {
+    const targetMarker = { visible: false };
+    const entryClick = vi.fn(() => {
+      targetMarker.visible = true;
+    });
+    const page = new FakePage({
+      target: [targetMarker],
+      commodityList: [{ visible: true }],
+      adjustmentEntry: [{ visible: true, click: entryClick }]
+    });
+    const session = new BrowserSession();
+
+    const result = await runOpenShein(session, page);
+
+    expect(entryClick).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("ready");
   });
 

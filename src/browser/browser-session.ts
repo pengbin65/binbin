@@ -5,7 +5,10 @@ export type LoginNavigationResult =
   | { status: "needs_manual_login"; page: Page; reason: string };
 
 const LOGIN_BUTTON_SELECTOR = "button:has-text('\u767b\u5f55'), button:has-text('Login')";
-const TARGET_PAGE_TEXT_PATTERN = /\u65b0\u54c1\u8bae\u4ef7|New Product Negotiation/i;
+const TARGET_PAGE_TEXT_PATTERN = /\u65b0\u54c1\u8bae\u4ef7|\u4ef7\u683c\u8c03\u6574|New Product Negotiation|Price Adjustment/i;
+const COMMODITY_LIST_TEXT_PATTERN = /\u5546\u54c1\u5217\u8868|Commodity List/i;
+const PRICE_ADJUSTMENT_ENTRY_TEXT_PATTERN =
+  /\u4ef7\u683c\u8c03\u6574\u5f85\u786e\u8ba4|\u4ef7\u683c\u8c03\u6574\u5f85\u529e|\u8bf7\u53ca\u65f6\u5904\u7406|Price Adjustment/i;
 const VERIFICATION_TEXT_PATTERN =
   /\u9a8c\u8bc1\u7801|\u9a8c\u8bc1|\u4e8c\u6b21\u9a8c\u8bc1|\u5b89\u5168\u9a8c\u8bc1|Verification|Verify/i;
 const NAVIGATION_TIMEOUT_MS = 60_000;
@@ -78,6 +81,30 @@ export class BrowserSession {
         page,
         reason: "SHEIN verification challenge is visible after login click"
       };
+    }
+
+    const onCommodityList = await findVisible(page.getByText(COMMODITY_LIST_TEXT_PATTERN), POST_LOGIN_VISIBILITY_TIMEOUT_MS);
+    if (onCommodityList) {
+      const adjustmentEntry = await findVisible(page.getByText(PRICE_ADJUSTMENT_ENTRY_TEXT_PATTERN), POST_LOGIN_VISIBILITY_TIMEOUT_MS);
+      if (!adjustmentEntry) {
+        return {
+          status: "needs_manual_login",
+          page,
+          reason: "SHEIN price adjustment entry is not visible on commodity list"
+        };
+      }
+
+      try {
+        await adjustmentEntry.click?.();
+      } catch (error) {
+        return {
+          status: "needs_manual_login",
+          page,
+          reason: `SHEIN price adjustment entry click failed: ${formatErrorMessage(error)}`
+        };
+      }
+
+      await page.waitForLoadState("domcontentloaded", { timeout: NAVIGATION_TIMEOUT_MS }).catch(() => undefined);
     }
 
     if (await findVisible(page.getByText(TARGET_PAGE_TEXT_PATTERN), POST_LOGIN_VISIBILITY_TIMEOUT_MS)) {

@@ -15,7 +15,7 @@ type ProductIdentity = {
   hasStableProductId: boolean;
 };
 
-const TARGET_PAGE_TEXT_PATTERN = /新品议价|New Product Negotiation/i;
+const TARGET_PAGE_TEXT_PATTERN = /新品议价|价格调整|New Product Negotiation|Price Adjustment/i;
 const ROW_SELECTOR = "tbody tr";
 const REJECT_BUTTON_SELECTOR = "button:has-text('拒绝'), button:has-text('驳回'), button:has-text('Reject')";
 const NEXT_PAGE_BUTTON_SELECTOR = "button:has-text('下一页'), button:has-text('Next')";
