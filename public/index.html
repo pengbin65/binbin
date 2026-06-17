@@ -82,6 +82,36 @@
         justify-content: flex-end;
       }
 
+      .shop-picker,
+      .rule-picker {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        justify-content: flex-end;
+      }
+
+      .rule-picker {
+        margin-top: 6px;
+      }
+
+      .shop-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        min-height: 30px;
+        padding: 4px 8px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: #fafbfc;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .shop-option input {
+        margin: 0;
+      }
+
       button {
         min-width: 72px;
         min-height: 34px;
@@ -321,10 +351,23 @@
           <h1>核价控制台</h1>
           <div class="subtle" id="connectionText">正在连接...</div>
         </div>
-        <div class="controls" aria-label="任务控制">
-          <button type="button" data-action="start" id="startButton">开始</button>
-          <button type="button" data-action="pause" id="pauseButton">暂停</button>
-          <button type="button" data-action="stop" id="stopButton">停止</button>
+        <div class="controls-wrap">
+          <div class="shop-picker" id="shopPicker" aria-label="店铺选择"></div>
+          <div class="rule-picker" id="rulePicker" aria-label="核价规则">
+            <label class="shop-option">
+              <input type="radio" name="pricingRule" value="women_shein" checked>
+              女装希音规则
+            </label>
+            <label class="shop-option">
+              <input type="radio" name="pricingRule" value="low_price">
+              低价规则 >= $0.7
+            </label>
+          </div>
+          <div class="controls" aria-label="任务控制">
+            <button type="button" data-action="start" id="startButton">开始</button>
+            <button type="button" data-action="pause" id="pauseButton">暂停</button>
+            <button type="button" data-action="stop" id="stopButton">停止</button>
+          </div>
         </div>
       </header>
 

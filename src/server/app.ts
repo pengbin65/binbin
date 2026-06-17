@@ -2,16 +2,18 @@ import type http from "node:http";
 import path from "node:path";
 import express, { type Express } from "express";
 import { WebSocketServer } from "ws";
+import type { PricingRuleId } from "../domain/pricing.js";
 import type { TaskStateStore } from "../domain/task-state.js";
 
 export type RunnerLike = {
-  run(): Promise<void>;
+  run(profileNames?: string[], pricingRule?: PricingRuleId): Promise<void>;
   stop?: () => Promise<void>;
 };
 
 export type CreateAppOptions = {
   state: TaskStateStore;
   runner: RunnerLike;
+  profileNames?: string[];
   publicDir?: string;
 };
 
@@ -33,6 +35,10 @@ export function createApp(options: CreateAppOptions): Express {
     response.json(options.state.snapshot());
   });
 
+  app.get("/api/profiles", (_request, response) => {
+    response.json({ profileNames: options.profileNames ?? [] });
+  });
+
   app.post("/api/start", (_request, response) => {
     if (stopping) {
       response.status(409).json({ error: "Task is stopping; wait before starting a new run" });
@@ -49,12 +55,19 @@ export function createApp(options: CreateAppOptions): Express {
       return;
     }
 
+    const selectedProfileNames = parseSelectedProfileNames(_request.body, options.profileNames);
+    const pricingRule = parsePricingRule(_request.body);
+    if (selectedProfileNames && selectedProfileNames.length === 0) {
+      response.status(400).json({ error: "Select at least one shop before starting" });
+      return;
+    }
+
     running = true;
     const runId = ++activeRunId;
     response.status(202).json({ started: true });
 
     const runPromise = Promise.resolve()
-      .then(() => options.runner.run())
+      .then(() => options.runner.run(selectedProfileNames, pricingRule))
       .catch((error: unknown) => {
         options.state.log("server", `Runner failed: ${formatErrorMessage(error)}`, "error");
         options.state.setStatus("failed");
@@ -127,6 +140,28 @@ export function attachStateWebSocket(
   });
 
   return webSocketServer;
+}
+
+function parsePricingRule(body: unknown): PricingRuleId {
+  if (!body || typeof body !== "object") {
+    return "women_shein";
+  }
+
+  const pricingRule = (body as { pricingRule?: unknown }).pricingRule;
+  return pricingRule === "low_price" || pricingRule === "women_shein" ? pricingRule : "women_shein";
+}
+
+function parseSelectedProfileNames(body: unknown, configuredProfileNames: string[] | undefined): string[] | undefined {
+  const configured = configuredProfileNames;
+  if (!body || typeof body !== "object" || !Array.isArray((body as { profileNames?: unknown }).profileNames)) {
+    return configured;
+  }
+
+  const allowed = new Set(configured ?? []);
+  return (body as { profileNames: unknown[] }).profileNames
+    .filter((name): name is string => typeof name === "string")
+    .map((name) => name.trim())
+    .filter((name) => name && (!configured || allowed.has(name)));
 }
 
 function formatErrorMessage(error: unknown): string {

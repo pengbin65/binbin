@@ -5,6 +5,7 @@ describe("loadConfig", () => {
   it("loads defaults and numeric overrides", () => {
     expect(loadConfig({})).toMatchObject({
       port: 3210,
+      hubstudioProfileNames: ["女装希音1"],
       retryAttempts: 3,
       retryDelayMs: 1000
     });
@@ -18,6 +19,18 @@ describe("loadConfig", () => {
       retryAttempts: 5,
       retryDelayMs: 250
     });
+  });
+
+  it("loads multiple Hubstudio profile names from comma-separated env", () => {
+    expect(loadConfig({
+      HUBSTUDIO_PROFILE_NAMES: "女装希音1, 女装希音2"
+    }).hubstudioProfileNames).toEqual(["女装希音1", "女装希音2"]);
+  });
+
+  it("falls back to the legacy single Hubstudio profile name env", () => {
+    expect(loadConfig({
+      HUBSTUDIO_PROFILE_NAME: "女装希音2"
+    }).hubstudioProfileNames).toEqual(["女装希音2"]);
   });
 
   it.each([

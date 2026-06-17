@@ -52,7 +52,11 @@ class FakePage {
     adjustmentEntry?: FakeCandidate[];
     verification?: FakeCandidate[];
     login?: FakeCandidate[];
-  } = {}) {}
+  } = {}, private readonly contextPages?: FakePage[]) {}
+
+  context(): { pages: () => FakePage[] } {
+    return { pages: () => this.contextPages ?? [this] };
+  }
 
   getByText(pattern: RegExp): FakeLocator {
     if (/New Product Negotiation/.test(pattern.source)) {
@@ -114,7 +118,7 @@ describe("BrowserSession.openShein", () => {
     expect(result.status).toBe("ready");
   });
 
-  it("opens the price adjustment entry from the commodity list before returning ready", async () => {
+  it("returns ready from the commodity list when the price adjustment entry is visible", async () => {
     const targetMarker = { visible: false };
     const entryClick = vi.fn(() => {
       targetMarker.visible = true;
@@ -128,11 +132,11 @@ describe("BrowserSession.openShein", () => {
 
     const result = await runOpenShein(session, page);
 
-    expect(entryClick).toHaveBeenCalledTimes(1);
+    expect(entryClick).not.toHaveBeenCalled();
     expect(result.status).toBe("ready");
   });
 
-  it("clicks the price adjustment entry even when the commodity list heading is not detected", async () => {
+  it("returns ready when the price adjustment entry is visible even if the commodity heading is not detected", async () => {
     const targetMarker = { visible: false };
     const entryClick = vi.fn(() => {
       targetMarker.visible = true;
@@ -145,8 +149,53 @@ describe("BrowserSession.openShein", () => {
 
     const result = await runOpenShein(session, page);
 
-    expect(entryClick).toHaveBeenCalledTimes(1);
+    expect(entryClick).not.toHaveBeenCalled();
     expect(result.status).toBe("ready");
+  });
+
+  it("does not click the price adjustment entry during navigation when it could open a new tab", async () => {
+    const contextPages: FakePage[] = [];
+    const targetPage = new FakePage({
+      target: [{ visible: true }]
+    }, contextPages);
+    const entryClick = vi.fn(() => {
+      contextPages.push(targetPage);
+    });
+    const page = new FakePage({
+      target: [{ visible: false }],
+      adjustmentEntry: [{ visible: true, click: entryClick }]
+    }, contextPages);
+    contextPages.push(page);
+    const session = new BrowserSession();
+
+    const result = await runOpenShein(session, page);
+
+    expect(entryClick).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "ready", page });
+  });
+
+  it("ignores stale negotiation tabs when the current page has a visible task entry", async () => {
+    const contextPages: FakePage[] = [];
+    const staleTargetPage = new FakePage({
+      target: [{ visible: true }]
+    }, contextPages);
+    const freshTargetPage = new FakePage({
+      target: [{ visible: true }]
+    }, contextPages);
+    const entryClick = vi.fn(() => {
+      contextPages.push(freshTargetPage);
+    });
+    const page = new FakePage({
+      target: [{ visible: false }],
+      adjustmentEntry: [{ visible: true, click: entryClick }]
+    }, contextPages);
+    contextPages.push(page, staleTargetPage);
+    const session = new BrowserSession();
+
+    const result = await runOpenShein(session, page);
+
+    expect(entryClick).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: "ready", page });
   });
 
   it("returns manual login when verification is visible after login", async () => {

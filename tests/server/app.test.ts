@@ -26,6 +26,61 @@ describe("createApp", () => {
     });
   });
 
+  it("returns configured profile names", async () => {
+    const state = new TaskStateStore();
+    const baseUrl = await listen(createApp({
+      state,
+      runner: { run: vi.fn() },
+      profileNames: ["女装希音1", "女装希音2"]
+    }));
+
+    const response = await fetch(`${baseUrl}/api/profiles`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      profileNames: ["女装希音1", "女装希音2"]
+    });
+  });
+
+  it("passes selected profile names and pricing rule to the runner on start", async () => {
+    const state = new TaskStateStore();
+    const run = vi.fn(async () => undefined);
+    const baseUrl = await listen(createApp({
+      state,
+      runner: { run },
+      profileNames: ["女装希音1", "女装希音2"]
+    }));
+
+    const response = await fetch(`${baseUrl}/api/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileNames: ["女装希音2"], pricingRule: "low_price" })
+    });
+
+    expect(response.status).toBe(202);
+    expect(run).toHaveBeenCalledWith(["女装希音2"], "low_price");
+  });
+
+  it("rejects start when no selected profile names are provided", async () => {
+    const state = new TaskStateStore();
+    const run = vi.fn(async () => undefined);
+    const baseUrl = await listen(createApp({
+      state,
+      runner: { run },
+      profileNames: ["女装希音1", "女装希音2"]
+    }));
+
+    const response = await fetch(`${baseUrl}/api/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileNames: [] })
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Select at least one shop before starting" });
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("schedules start without waiting for the runner and rejects concurrent starts", async () => {
     const state = new TaskStateStore();
     let resolveRun: () => void = () => undefined;

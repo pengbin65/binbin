@@ -34,4 +34,18 @@ describe("evaluatePricing", () => {
       reason: "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_8"
     });
   });
+
+  it("passes low-price rule when official suggested price is at least 0.7", () => {
+    expect(evaluatePricing({ quotedPrice: 20, currentSellingPrice: 0, officialSuggestedPrice: 0.7 }, "low_price")).toMatchObject({
+      passed: true,
+      reason: "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_0_7"
+    });
+  });
+
+  it("fails low-price rule when official suggested price is below 0.7", () => {
+    expect(evaluatePricing({ quotedPrice: 20, currentSellingPrice: 999, officialSuggestedPrice: 0.69 }, "low_price")).toMatchObject({
+      passed: false,
+      reason: "OFFICIAL_SUGGESTED_PRICE_BELOW_0_7"
+    });
+  });
 });

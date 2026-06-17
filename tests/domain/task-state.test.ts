@@ -108,4 +108,17 @@ describe("TaskStateStore", () => {
     expect(laterSnapshot.logs[0]?.message).toBe("Recorded price");
     expect(laterSnapshot.results[0]?.productId).toBe("sku-1");
   });
+
+  it("keeps only the latest 200 log entries", () => {
+    const store = new TaskStateStore();
+
+    for (let index = 1; index <= 205; index += 1) {
+      store.log("pricing", `log-${index}`);
+    }
+
+    const logs = store.snapshot().logs;
+    expect(logs).toHaveLength(200);
+    expect(logs[0]?.message).toBe("log-6");
+    expect(logs.at(-1)?.message).toBe("log-205");
+  });
 });

@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import { BrowserSession, type LoginNavigationResult } from "../browser/browser-session.js";
 import type { AppConfig } from "../config.js";
+import type { PricingRuleId } from "../domain/pricing.js";
 import type { TaskStateStore } from "../domain/task-state.js";
 import { HubstudioClient } from "../hubstudio/hubstudio-client.js";
 import { SheinProcessor } from "../shein/shein-processor.js";
@@ -14,13 +15,13 @@ export type PricingRunnerOptions = {
   state: TaskStateStore;
   hubstudio?: Pick<HubstudioClient, "findProfileByName" | "startProfile">;
   browser?: Pick<BrowserSession, "connect" | "openShein" | "close">;
-  createProcessor?: (page: Page) => ProcessorLike;
+  createProcessor?: (page: Page, pricingRule: PricingRuleId) => ProcessorLike;
 };
 
 export class PricingRunner {
   private readonly hubstudio: Pick<HubstudioClient, "findProfileByName" | "startProfile">;
   private readonly browser: Pick<BrowserSession, "connect" | "openShein" | "close">;
-  private readonly createProcessor: (page: Page) => ProcessorLike;
+  private readonly createProcessor: (page: Page, pricingRule: PricingRuleId) => ProcessorLike;
 
   constructor(private readonly options: PricingRunnerOptions) {
     this.hubstudio = options.hubstudio ?? new HubstudioClient({
@@ -28,10 +29,10 @@ export class PricingRunner {
       apiToken: options.config.hubstudioApiToken
     });
     this.browser = options.browser ?? new BrowserSession();
-    this.createProcessor = options.createProcessor ?? ((page) => new SheinProcessor(page, options.state, {
+    this.createProcessor = options.createProcessor ?? ((page, pricingRule) => new SheinProcessor(page, options.state, {
       attempts: options.config.retryAttempts,
       delayMs: options.config.retryDelayMs
-    }));
+    }, pricingRule));
   }
 
   async stop(): Promise<void> {
@@ -40,50 +41,23 @@ export class PricingRunner {
     await this.closeActiveSession();
   }
 
-  async run(): Promise<void> {
+  async run(profileNames = this.options.config.hubstudioProfileNames, pricingRule: PricingRuleId = "women_shein"): Promise<void> {
     const { config, state } = this.options;
     state.start();
 
     try {
-      state.log("hubstudio", `Finding Hubstudio profile: ${config.hubstudioProfileName}`);
-      state.setStatus("starting_profile");
-      const profile = await this.hubstudio.findProfileByName(config.hubstudioProfileName);
-      if (this.shouldStopAfter("finding Hubstudio profile")) {
-        return;
-      }
+      for (const [index, profileName] of profileNames.entries()) {
+        await this.runProfile(profileName, pricingRule);
 
-      state.log("hubstudio", `Starting Hubstudio profile: ${profile.name}`);
-      const connection = await this.hubstudio.startProfile(profile.id);
-      if (this.shouldStopAfter("starting Hubstudio profile")) {
-        return;
-      }
+        const snapshot = state.snapshot();
+        if (snapshot.status !== "completed") {
+          return;
+        }
 
-      state.log("browser", "Connecting to Hubstudio browser");
-      state.setStatus("connecting");
-      const page = await this.browser.connect(connection.wsEndpoint);
-      if (this.shouldStopAfter("connecting to Hubstudio browser")) {
-        return;
+        if (index < profileNames.length - 1) {
+          await this.closeActiveSession();
+        }
       }
-
-      state.log("shein", "Opening SHEIN New Product Negotiation page");
-      state.setStatus("navigating");
-      const navigation = await this.openSheinWithRetry(page);
-      if (!navigation) {
-        return;
-      }
-      if (this.shouldStopAfter("opening SHEIN")) {
-        return;
-      }
-
-      if (navigation.status === "needs_manual_login") {
-        state.setStatus("logging_in");
-        state.log("login", `Manual SHEIN login required: ${navigation.reason}`, "warn");
-        state.requestPause();
-        state.markPaused();
-        return;
-      }
-
-      await this.createProcessor(navigation.page).processAllPages();
     } catch (error) {
       state.log("runner", `Pricing runner failed: ${formatErrorMessage(error)}`, "error");
       state.setStatus("failed");
@@ -92,6 +66,50 @@ export class PricingRunner {
         await this.closeActiveSession();
       }
     }
+  }
+
+  private async runProfile(profileName: string, pricingRule: PricingRuleId): Promise<void> {
+    const { state } = this.options;
+
+    state.log("hubstudio", `Finding Hubstudio profile: ${profileName}`);
+    state.setStatus("starting_profile");
+    const profile = await this.hubstudio.findProfileByName(profileName);
+    if (this.shouldStopAfter("finding Hubstudio profile")) {
+      return;
+    }
+
+    state.log("hubstudio", `Starting Hubstudio profile: ${profile.name}`);
+    const connection = await this.hubstudio.startProfile(profile.id);
+    if (this.shouldStopAfter("starting Hubstudio profile")) {
+      return;
+    }
+
+    state.log("browser", "Connecting to Hubstudio browser");
+    state.setStatus("connecting");
+    const page = await this.browser.connect(connection.wsEndpoint);
+    if (this.shouldStopAfter("connecting to Hubstudio browser")) {
+      return;
+    }
+
+    state.log("shein", `Opening SHEIN New Product Negotiation page for ${profile.name}`);
+    state.setStatus("navigating");
+    const navigation = await this.openSheinWithRetry(page);
+    if (!navigation) {
+      return;
+    }
+    if (this.shouldStopAfter("opening SHEIN")) {
+      return;
+    }
+
+    if (navigation.status === "needs_manual_login") {
+      state.setStatus("logging_in");
+      state.log("login", `Manual SHEIN login required for ${profile.name}: ${navigation.reason}`, "warn");
+      state.requestPause();
+      state.markPaused();
+      return;
+    }
+
+    await this.createProcessor(navigation.page, pricingRule).processAllPages();
   }
 
   private shouldStopAfter(step: string): boolean {

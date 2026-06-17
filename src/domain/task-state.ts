@@ -38,6 +38,8 @@ export type TaskSnapshot = {
   results: ResultRow[];
 };
 
+const MAX_LOG_ENTRIES = 200;
+
 export class TaskStateStore {
   private status: TaskStatus = "idle";
   private pauseRequested = false;
@@ -63,6 +65,9 @@ export class TaskStateStore {
 
   log(phase: string, message: string, level: LogEntry["level"] = "info"): void {
     this.logs.push({ at: new Date().toISOString(), level, phase, message });
+    if (this.logs.length > MAX_LOG_ENTRIES) {
+      this.logs.splice(0, this.logs.length - MAX_LOG_ENTRIES);
+    }
   }
 
   recordResult(row: ResultRow): void {

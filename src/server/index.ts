@@ -7,7 +7,7 @@ import { attachStateWebSocket, createApp } from "./app.js";
 const config = loadConfig();
 const state = new TaskStateStore();
 const runner = new PricingRunner({ config, state });
-const app = createApp({ state, runner });
+const app = createApp({ state, runner, profileNames: config.hubstudioProfileNames });
 const server = http.createServer(app);
 
 attachStateWebSocket(server, state);

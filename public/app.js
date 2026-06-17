@@ -24,6 +24,8 @@
   const reasonLabels = {
     CURRENT_PRICE_ABOVE_70_PERCENT: "当前售价高于 70% 阈值",
     OFFICIAL_SUGGESTED_PRICE_AT_LEAST_8: "官方建议价至少 8",
+    OFFICIAL_SUGGESTED_PRICE_AT_LEAST_0_7: "官方建议价至少 0.7",
+    OFFICIAL_SUGGESTED_PRICE_BELOW_0_7: "官方建议价低于 0.7",
     FAILED_BOTH_RULES: "未满足核价规则"
   };
 
@@ -31,7 +33,8 @@
     snapshot: undefined,
     pendingAction: undefined,
     socketConnected: false,
-    fetchLoaded: false
+    fetchLoaded: false,
+    profileNames: []
   };
 
   const elements = {
@@ -39,6 +42,8 @@
     startButton: document.getElementById("startButton"),
     pauseButton: document.getElementById("pauseButton"),
     stopButton: document.getElementById("stopButton"),
+    shopPicker: document.getElementById("shopPicker"),
+    rulePicker: document.getElementById("rulePicker"),
     statusValue: document.getElementById("statusValue"),
     resultCount: document.getElementById("resultCount"),
     pauseValue: document.getElementById("pauseValue"),
@@ -55,9 +60,25 @@
   elements.pauseButton.addEventListener("click", () => postAction("pause"));
   elements.stopButton.addEventListener("click", () => postAction("stop"));
 
+  fetchProfiles();
   fetchState();
   connectWebSocket();
   render();
+
+  async function fetchProfiles() {
+    try {
+      const response = await fetch("/api/profiles", { headers: { Accept: "application/json" } });
+      if (!response.ok) {
+        throw new Error(`GET /api/profiles failed: ${response.status}`);
+      }
+      const payload = await response.json();
+      state.profileNames = Array.isArray(payload.profileNames) ? payload.profileNames.filter((name) => typeof name === "string") : [];
+      renderShopPicker();
+      clearError();
+    } catch (error) {
+      showError(formatError(error));
+    }
+  }
 
   async function fetchState() {
     try {
@@ -114,9 +135,14 @@
     renderButtons();
 
     try {
+      const body = action === "start" ? { profileNames: selectedProfileNames(), pricingRule: selectedPricingRule() } : undefined;
       const response = await fetch(`/api/${action}`, {
         method: "POST",
-        headers: { Accept: "application/json" }
+        headers: {
+          Accept: "application/json",
+          ...(body ? { "content-type": "application/json" } : {})
+        },
+        body: body ? JSON.stringify(body) : undefined
       });
       const payload = await readJsonOrEmpty(response);
 
@@ -210,14 +236,51 @@
     const snapshot = state.snapshot || normalizeSnapshot({});
     const isBusy = Boolean(state.pendingAction);
     const isActive = ["connecting", "starting_profile", "logging_in", "navigating", "pricing"].includes(snapshot.status);
+    const hasSelectedShop = selectedProfileNames().length > 0;
 
-    elements.startButton.disabled = isBusy || isActive || snapshot.status === "paused";
+    elements.startButton.disabled = isBusy || isActive || snapshot.status === "paused" || !hasSelectedShop;
     elements.pauseButton.disabled = isBusy || !isActive || snapshot.pauseRequested || snapshot.stopRequested;
     elements.stopButton.disabled = isBusy || snapshot.status === "stopped";
 
     elements.startButton.textContent = state.pendingAction === "start" ? "开始中" : "开始";
     elements.pauseButton.textContent = state.pendingAction === "pause" ? "暂停中" : "暂停";
     elements.stopButton.textContent = state.pendingAction === "stop" ? "停止中" : "停止";
+  }
+
+  function renderShopPicker() {
+    elements.shopPicker.replaceChildren();
+    if (!state.profileNames.length) {
+      const empty = document.createElement("span");
+      empty.className = "subtle";
+      empty.textContent = "未配置店铺";
+      elements.shopPicker.appendChild(empty);
+      return;
+    }
+
+    for (const profileName of state.profileNames) {
+      const label = document.createElement("label");
+      label.className = "shop-option";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = "profileName";
+      input.value = profileName;
+      input.checked = true;
+      input.addEventListener("change", renderButtons);
+      label.append(input, document.createTextNode(profileName));
+      elements.shopPicker.appendChild(label);
+    }
+    renderButtons();
+  }
+
+  function selectedProfileNames() {
+    return Array.from(elements.shopPicker.querySelectorAll("input[name='profileName']:checked"))
+      .map((input) => input.value)
+      .filter(Boolean);
+  }
+
+  function selectedPricingRule() {
+    const selected = elements.rulePicker.querySelector("input[name='pricingRule']:checked");
+    return selected ? selected.value : "women_shein";
   }
 
   function renderResults(results) {

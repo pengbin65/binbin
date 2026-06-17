@@ -10,7 +10,7 @@ const config: AppConfig = {
   port: 3210,
   hubstudioApiBase: "http://hubstudio.test",
   hubstudioApiToken: "token",
-  hubstudioProfileName: "profile-name",
+  hubstudioProfileNames: ["profile-name"],
   sheinNewProductNegotiationUrl: "https://shein.test/new-product-negotiation",
   retryAttempts: 2,
   retryDelayMs: 0
@@ -50,6 +50,76 @@ describe("PricingRunner", () => {
     expect(processAllPages).toHaveBeenCalledTimes(1);
     expect(browser.close).toHaveBeenCalledTimes(1);
     expect(state.snapshot().status).toBe("completed");
+  });
+
+  it("runs multiple Hubstudio profiles sequentially from one start", async () => {
+    const state = new TaskStateStore();
+    const page1 = { id: "page-1" } as unknown as Page;
+    const page2 = { id: "page-2" } as unknown as Page;
+    const profile1: HubstudioProfile = { id: "profile-1", name: "女装希音1" };
+    const profile2: HubstudioProfile = { id: "profile-2", name: "女装希音2" };
+    const hubstudio = {
+      findProfileByName: vi.fn(async (name: string) => name === "女装希音1" ? profile1 : profile2),
+      startProfile: vi.fn(async (profileId: string) => ({ wsEndpoint: `ws://${profileId}` }))
+    };
+    const browser = {
+      connect: vi.fn(async (endpoint: string) => endpoint.endsWith("profile-1") ? page1 : page2),
+      openShein: vi.fn(async (page: Page): Promise<LoginNavigationResult> => ({ status: "ready", page })),
+      close: vi.fn(async () => undefined)
+    };
+    const processAllPages = vi.fn(async () => {
+      state.setStatus("completed");
+    });
+    const runner = new PricingRunner({
+      config: {
+        ...config,
+        hubstudioProfileNames: ["女装希音1", "女装希音2"]
+      },
+      state,
+      hubstudio: hubstudio as unknown as HubstudioClient,
+      browser: browser as unknown as BrowserSession,
+      createProcessor: vi.fn(() => ({ processAllPages }))
+    });
+
+    await runner.run();
+
+    expect(hubstudio.findProfileByName).toHaveBeenNthCalledWith(1, "女装希音1");
+    expect(hubstudio.findProfileByName).toHaveBeenNthCalledWith(2, "女装希音2");
+    expect(hubstudio.startProfile).toHaveBeenNthCalledWith(1, "profile-1");
+    expect(hubstudio.startProfile).toHaveBeenNthCalledWith(2, "profile-2");
+    expect(browser.openShein).toHaveBeenCalledTimes(2);
+    expect(processAllPages).toHaveBeenCalledTimes(2);
+    expect(browser.close).toHaveBeenCalledTimes(2);
+    expect(state.snapshot().status).toBe("completed");
+  });
+
+  it("passes the selected pricing rule to each SHEIN processor", async () => {
+    const state = new TaskStateStore();
+    const page = {} as Page;
+    const profile: HubstudioProfile = { id: "profile-1", name: "profile-name" };
+    const processAllPages = vi.fn(async () => {
+      state.setStatus("completed");
+    });
+    const createProcessor = vi.fn(() => ({ processAllPages }));
+    const runner = new PricingRunner({
+      config,
+      state,
+      hubstudio: {
+        findProfileByName: vi.fn(async () => profile),
+        startProfile: vi.fn(async () => ({ wsEndpoint: "ws://browser" }))
+      } as unknown as HubstudioClient,
+      browser: {
+        connect: vi.fn(async () => page),
+        openShein: vi.fn(async (): Promise<LoginNavigationResult> => ({ status: "ready", page })),
+        close: vi.fn(async () => undefined)
+      } as unknown as BrowserSession,
+      createProcessor
+    });
+
+    await runner.run(["profile-name"], "low_price");
+
+    expect(createProcessor).toHaveBeenCalledWith(page, "low_price");
+    expect(processAllPages).toHaveBeenCalledTimes(1);
   });
 
   it("retries transient SHEIN navigation failures before processing pages", async () => {
@@ -118,7 +188,7 @@ describe("PricingRunner", () => {
     expect(snapshot.logs.at(-1)).toMatchObject({
       level: "warn",
       phase: "login",
-      message: "Manual SHEIN login required: verification required"
+      message: "Manual SHEIN login required for profile-name: verification required"
     });
     expect(processAllPages).not.toHaveBeenCalled();
     expect(close).not.toHaveBeenCalled();
