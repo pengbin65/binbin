@@ -27,6 +27,24 @@ describe("loadConfig", () => {
     }).hubstudioProfileNames).toEqual(["女装希音1", "女装希音2"]);
   });
 
+  it("loads the configured SHEIN shop batch", () => {
+    expect(loadConfig({
+      HUBSTUDIO_PROFILE_NAMES: "女装希音1,女装希音2,希音9,希音61,希音68,希音75,希音78,希音G1_001,希音G1_002,希音G1_003,希音G1_004"
+    }).hubstudioProfileNames).toEqual([
+      "女装希音1",
+      "女装希音2",
+      "希音9",
+      "希音61",
+      "希音68",
+      "希音75",
+      "希音78",
+      "希音G1_001",
+      "希音G1_002",
+      "希音G1_003",
+      "希音G1_004"
+    ]);
+  });
+
   it("falls back to the legacy single Hubstudio profile name env", () => {
     expect(loadConfig({
       HUBSTUDIO_PROFILE_NAME: "女装希音2"
