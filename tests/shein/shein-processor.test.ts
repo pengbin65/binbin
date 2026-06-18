@@ -358,6 +358,10 @@ describe("extractBatchDialogProductId", () => {
   it("extracts g-prefixed SPU ids from batch confirmation rows", () => {
     expect(extractBatchDialogProductId("SPU：g2606171745275374 SKU：l9mq")).toBe("g2606171745275374");
   });
+
+  it("extracts g-prefixed SKC ids from batch confirmation rows", () => {
+    expect(extractBatchDialogProductId("SKC：g2606171719966713 价格操作 同意平台建议价")).toBe("g2606171719966713");
+  });
 });
 
 describe("SheinProcessor", () => {

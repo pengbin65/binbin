@@ -81,7 +81,7 @@ export async function readRowPrices(
 
 export function extractBatchDialogProductId(text: string): string | null {
   const match =
-    /SKC\s*[:：]\s*(sz\d+)/i.exec(text) ??
+    /SKC\s*[:：]\s*([A-Za-z0-9_-]+)/i.exec(text) ??
     /SPU\s*[:：]\s*([A-Za-z0-9_-]+)/i.exec(text);
   return match ? match[1] : null;
 }
@@ -844,7 +844,7 @@ export class SheinProcessor {
         void rejectOptions;
 
         const rowProductId = (row) => {
-          const match = /SKC\\s*[:\\uff1a]\\s*(sz\\d+)|SPU\\s*[:\\uff1a]\\s*([A-Za-z0-9_-]+)/i.exec(textOf(row));
+          const match = /SKC\\s*[:\\uff1a]\\s*([A-Za-z0-9_-]+)|SPU\\s*[:\\uff1a]\\s*([A-Za-z0-9_-]+)/i.exec(textOf(row));
           return match ? (match[1] || match[2]) : null;
         };
         const scrollable = [...modal.querySelectorAll("*")]
