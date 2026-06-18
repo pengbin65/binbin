@@ -86,6 +86,30 @@ export function extractBatchDialogProductId(text: string): string | null {
   return match ? match[1] : null;
 }
 
+export function chooseBatchDialogItemIndex(
+  productId: string | null,
+  itemProductIds: readonly string[],
+  appliedIndexes: ReadonlySet<number>,
+  nextSequentialIndex: number
+): number {
+  if (productId) {
+    const productIndex = itemProductIds.findIndex((itemProductId, index) =>
+      itemProductId === productId && !appliedIndexes.has(index)
+    );
+    if (productIndex >= 0) {
+      return productIndex;
+    }
+  }
+
+  for (let index = Math.max(0, nextSequentialIndex); index < itemProductIds.length; index += 1) {
+    if (!appliedIndexes.has(index)) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 async function readProductLevelRowPrices(
   row: Pick<Locator, "textContent">,
   pricingRule: PricingRuleId = "women_shein"
@@ -872,6 +896,21 @@ export class SheinProcessor {
           return rowRect.bottom > scrollRect.top + 20 && rowRect.top < scrollRect.bottom - 20;
         };
         const appliedIndexes = new Set();
+        let nextSequentialIndex = 0;
+        const chooseItemIndex = (productId) => {
+          if (productId) {
+            const productIndex = items.findIndex((item, index) => !appliedIndexes.has(index) && item.productId === productId);
+            if (productIndex >= 0) {
+              return productIndex;
+            }
+          }
+          for (let index = nextSequentialIndex; index < items.length; index += 1) {
+            if (!appliedIndexes.has(index)) {
+              return index;
+            }
+          }
+          return -1;
+        };
         const markAlreadyApplied = () => {
           for (let index = 0; index < items.length; index += 1) {
             if (appliedIndexes.has(index)) {
@@ -888,16 +927,18 @@ export class SheinProcessor {
               .find((candidate) => textOf(candidate).includes(label));
             if (option && String(option.className).includes("checked")) {
               appliedIndexes.add(index);
+              nextSequentialIndex = Math.max(nextSequentialIndex, index + 1);
             }
           }
         };
 
         for (let pass = 0; pass < 20 && appliedIndexes.size < items.length; pass += 1) {
           const rows = [...modal.querySelectorAll("tbody tr")]
-            .filter((row) => visible(row) && rowIsInView(row) && rowProductId(row));
+            .filter((row) => visible(row) && rowIsInView(row))
+            .sort((left, right) => centerY(left) - centerY(right));
           for (const row of rows) {
             const productId = rowProductId(row);
-            const itemIndex = items.findIndex((item, index) => !appliedIndexes.has(index) && item.productId === productId);
+            const itemIndex = chooseItemIndex(productId);
             if (itemIndex < 0) {
               continue;
             }
@@ -912,6 +953,7 @@ export class SheinProcessor {
             await sleep(250);
             option.click();
             appliedIndexes.add(itemIndex);
+            nextSequentialIndex = Math.max(nextSequentialIndex, itemIndex + 1);
             applied += 1;
             await sleep(350);
           }

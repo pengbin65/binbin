@@ -1,7 +1,12 @@
 import type { Locator, Page } from "playwright";
 import { describe, expect, it, vi } from "vitest";
 import { TaskStateStore } from "../../src/domain/task-state.js";
-import { SheinProcessor, extractBatchDialogProductId, readRowPrices } from "../../src/shein/shein-processor.js";
+import {
+  SheinProcessor,
+  chooseBatchDialogItemIndex,
+  extractBatchDialogProductId,
+  readRowPrices
+} from "../../src/shein/shein-processor.js";
 
 type FakeLocatorOptions = {
   text?: string | string[] | null;
@@ -366,6 +371,19 @@ describe("extractBatchDialogProductId", () => {
   it("extracts batch row ids when SHEIN omits the SKC or SPU colon", () => {
     expect(extractBatchDialogProductId("SKC g26061716459351 价格操作 拒绝，放弃上新")).toBe("g26061716459351");
     expect(extractBatchDialogProductId("SPU h26061714113246 SKU l9mq 平台建议价")).toBe("h26061714113246");
+  });
+});
+
+describe("chooseBatchDialogItemIndex", () => {
+  const itemProductIds = ["h26061714113246", "g26061716459351", "c2606171705091384"];
+
+  it("prefers product id matching when the dialog exposes a usable id", () => {
+    expect(chooseBatchDialogItemIndex("g26061716459351", itemProductIds, new Set(), 0)).toBe(1);
+  });
+
+  it("falls back to the next unapplied row order when the dialog id is missing or unknown", () => {
+    expect(chooseBatchDialogItemIndex(null, itemProductIds, new Set([0]), 0)).toBe(1);
+    expect(chooseBatchDialogItemIndex("unreadable", itemProductIds, new Set([0, 1]), 0)).toBe(2);
   });
 });
 
