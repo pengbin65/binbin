@@ -362,6 +362,11 @@ describe("extractBatchDialogProductId", () => {
   it("extracts g-prefixed SKC ids from batch confirmation rows", () => {
     expect(extractBatchDialogProductId("SKC：g2606171719966713 价格操作 同意平台建议价")).toBe("g2606171719966713");
   });
+
+  it("extracts batch row ids when SHEIN omits the SKC or SPU colon", () => {
+    expect(extractBatchDialogProductId("SKC g26061716459351 价格操作 拒绝，放弃上新")).toBe("g26061716459351");
+    expect(extractBatchDialogProductId("SPU h26061714113246 SKU l9mq 平台建议价")).toBe("h26061714113246");
+  });
 });
 
 describe("SheinProcessor", () => {
