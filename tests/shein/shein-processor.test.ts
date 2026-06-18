@@ -1,7 +1,7 @@
 import type { Locator, Page } from "playwright";
 import { describe, expect, it, vi } from "vitest";
 import { TaskStateStore } from "../../src/domain/task-state.js";
-import { SheinProcessor, readRowPrices } from "../../src/shein/shein-processor.js";
+import { SheinProcessor, extractBatchDialogProductId, readRowPrices } from "../../src/shein/shein-processor.js";
 
 type FakeLocatorOptions = {
   text?: string | string[] | null;
@@ -351,6 +351,12 @@ describe("readRowPrices", () => {
     const row = new FakeLocator({ textError: new Error("text unavailable") });
 
     await expect(readRowPrices(row as unknown as Locator)).resolves.toBeNull();
+  });
+});
+
+describe("extractBatchDialogProductId", () => {
+  it("extracts g-prefixed SPU ids from batch confirmation rows", () => {
+    expect(extractBatchDialogProductId("SPU：g2606171745275374 SKU：l9mq")).toBe("g2606171745275374");
   });
 });
 
