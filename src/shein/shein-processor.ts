@@ -28,6 +28,13 @@ type BatchDialogResult = {
   footerMatches: boolean;
 };
 
+export type BatchDialogCompletionPlan = {
+  shouldCloseDialog: boolean;
+  shouldConfirmDialog: boolean;
+  shouldRecordResults: boolean;
+  shouldRepeatCurrentPage: boolean;
+};
+
 type BatchHandleResponse = {
   status: number;
   text: string;
@@ -108,6 +115,20 @@ export function chooseBatchDialogItemIndex(
   }
 
   return -1;
+}
+
+export function planBatchDialogCompletion(
+  result: Pick<BatchDialogResult, "confirmed" | "footerMatches" | "missingProductIds">
+): BatchDialogCompletionPlan {
+  const hasMissingProducts = result.missingProductIds.length > 0;
+  const isIncompleteUnconfirmedDialog = hasMissingProducts && !result.footerMatches && !result.confirmed;
+
+  return {
+    shouldCloseDialog: isIncompleteUnconfirmedDialog,
+    shouldConfirmDialog: !isIncompleteUnconfirmedDialog && !result.confirmed,
+    shouldRecordResults: !isIncompleteUnconfirmedDialog,
+    shouldRepeatCurrentPage: hasMissingProducts
+  };
 }
 
 async function readProductLevelRowPrices(
@@ -264,28 +285,36 @@ export class SheinProcessor {
     }
 
     const batchResult = await this.applyBatchDialogDecisions(pageDecisions);
+    const completionPlan = planBatchDialogCompletion(batchResult);
     let batchConfirmOutcome: "not-needed" | "clicked" | "backend-accepted" | "backend-stale" = "not-needed";
-    if (!batchResult.confirmed || await this.isBatchDialogOpen()) {
+    if (completionPlan.shouldCloseDialog) {
+      await this.closeExistingBatchDialogIfPresent();
+    } else if (completionPlan.shouldConfirmDialog || await this.isBatchDialogOpen()) {
       batchConfirmOutcome = await this.clickBatchDialogConfirm();
     }
-    if (this.hasPageEvaluate()) {
+    if (!completionPlan.shouldCloseDialog && this.hasPageEvaluate()) {
       await this.refreshPendingTaskDrawerAfterBatchSubmit();
       this.repeatCurrentPage = true;
-    } else {
+    } else if (!completionPlan.shouldCloseDialog) {
       await this.waitAfterSheinAction("batch confirm selected rows");
     }
 
     const appliedProductIds = batchResult.appliedProductIds.length > 0
       ? new Set(batchResult.appliedProductIds)
       : new Set(pageDecisions.map((pageDecision) => pageDecision.productId));
-    const recordedDecisions = pageDecisions.filter((pageDecision) => appliedProductIds.has(pageDecision.productId));
-    if (batchResult.missingProductIds.length > 0) {
-      this.repeatCurrentPage = true;
+    const recordedDecisions = completionPlan.shouldRecordResults
+      ? pageDecisions.filter((pageDecision) => appliedProductIds.has(pageDecision.productId))
+      : [];
+    if (completionPlan.shouldRepeatCurrentPage) {
       this.state.log(
         PHASE,
         `Batch dialog did not include ${batchResult.missingProductIds.length} selected products; will reprocess current page`,
         "warn"
       );
+    }
+    if (completionPlan.shouldCloseDialog) {
+      this.repeatCurrentPage = true;
+      return true;
     }
 
     for (const pageDecision of recordedDecisions) {
@@ -1029,7 +1058,11 @@ export class SheinProcessor {
     `);
 
     if (result.missing.length > 0 && !result.footerMatches && !result.confirmed) {
-      throw new Error(`batch dialog decisions missing products: ${result.missing.join(", ")}`);
+      this.state.log(
+        PHASE,
+        `Batch dialog decisions missing ${result.missing.length} products: ${result.missing.slice(0, 5).join(", ")}`,
+        "warn"
+      );
     }
     this.state.log(PHASE, `Applied ${result.applied} batch dialog decisions; footer match: ${result.footerMatches}; confirmed: ${result.confirmed}`, "info");
     return {

@@ -5,6 +5,7 @@ import {
   SheinProcessor,
   chooseBatchDialogItemIndex,
   extractBatchDialogProductId,
+  planBatchDialogCompletion,
   readRowPrices
 } from "../../src/shein/shein-processor.js";
 
@@ -384,6 +385,34 @@ describe("chooseBatchDialogItemIndex", () => {
   it("falls back to the next unapplied row order when the dialog id is missing or unknown", () => {
     expect(chooseBatchDialogItemIndex(null, itemProductIds, new Set([0]), 0)).toBe(1);
     expect(chooseBatchDialogItemIndex("unreadable", itemProductIds, new Set([0, 1]), 0)).toBe(2);
+  });
+});
+
+describe("planBatchDialogCompletion", () => {
+  it("closes and retries an incomplete unconfirmed batch dialog without recording or confirming it", () => {
+    expect(planBatchDialogCompletion({
+      confirmed: false,
+      footerMatches: false,
+      missingProductIds: ["h2606180942431655"]
+    })).toEqual({
+      shouldCloseDialog: true,
+      shouldConfirmDialog: false,
+      shouldRecordResults: false,
+      shouldRepeatCurrentPage: true
+    });
+  });
+
+  it("continues normally when all selected products were applied in the dialog", () => {
+    expect(planBatchDialogCompletion({
+      confirmed: false,
+      footerMatches: true,
+      missingProductIds: []
+    })).toEqual({
+      shouldCloseDialog: false,
+      shouldConfirmDialog: true,
+      shouldRecordResults: true,
+      shouldRepeatCurrentPage: false
+    });
   });
 });
 
