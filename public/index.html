@@ -95,6 +95,14 @@
         margin-top: 6px;
       }
 
+      .shop-bulk-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+        margin-bottom: 6px;
+      }
+
       .shop-option {
         display: inline-flex;
         align-items: center;
@@ -143,6 +151,20 @@
 
       button[data-action="stop"]:hover:not(:disabled) {
         background: var(--danger-dark);
+      }
+
+      .secondary-button {
+        min-width: 64px;
+        min-height: 30px;
+        padding: 5px 10px;
+        border-color: var(--border);
+        color: var(--text);
+        background: #fafbfc;
+        font-size: 13px;
+      }
+
+      .secondary-button:hover:not(:disabled) {
+        background: #eef1f4;
       }
 
       .status-grid {
@@ -352,6 +374,10 @@
           <div class="subtle" id="connectionText">正在连接...</div>
         </div>
         <div class="controls-wrap">
+          <div class="shop-bulk-controls" aria-label="店铺批量选择">
+            <button type="button" class="secondary-button" id="selectAllShopsButton">全选店铺</button>
+            <button type="button" class="secondary-button" id="clearAllShopsButton">取消全选</button>
+          </div>
           <div class="shop-picker" id="shopPicker" aria-label="店铺选择"></div>
           <div class="rule-picker" id="rulePicker" aria-label="核价规则">
             <label class="shop-option">

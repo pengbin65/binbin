@@ -42,6 +42,8 @@
     startButton: document.getElementById("startButton"),
     pauseButton: document.getElementById("pauseButton"),
     stopButton: document.getElementById("stopButton"),
+    selectAllShopsButton: document.getElementById("selectAllShopsButton"),
+    clearAllShopsButton: document.getElementById("clearAllShopsButton"),
     shopPicker: document.getElementById("shopPicker"),
     rulePicker: document.getElementById("rulePicker"),
     statusValue: document.getElementById("statusValue"),
@@ -59,6 +61,8 @@
   elements.startButton.addEventListener("click", () => postAction("start"));
   elements.pauseButton.addEventListener("click", () => postAction("pause"));
   elements.stopButton.addEventListener("click", () => postAction("stop"));
+  elements.selectAllShopsButton.addEventListener("click", () => setAllShopsSelected(true));
+  elements.clearAllShopsButton.addEventListener("click", () => setAllShopsSelected(false));
 
   fetchProfiles();
   fetchState();
@@ -241,6 +245,8 @@
     elements.startButton.disabled = isBusy || isActive || snapshot.status === "paused" || !hasSelectedShop;
     elements.pauseButton.disabled = isBusy || !isActive || snapshot.pauseRequested || snapshot.stopRequested;
     elements.stopButton.disabled = isBusy || snapshot.status === "stopped";
+    elements.selectAllShopsButton.disabled = isBusy || isActive;
+    elements.clearAllShopsButton.disabled = isBusy || isActive;
 
     elements.startButton.textContent = state.pendingAction === "start" ? "开始中" : "开始";
     elements.pauseButton.textContent = state.pendingAction === "pause" ? "暂停中" : "暂停";
@@ -276,6 +282,13 @@
     return Array.from(elements.shopPicker.querySelectorAll("input[name='profileName']:checked"))
       .map((input) => input.value)
       .filter(Boolean);
+  }
+
+  function setAllShopsSelected(selected) {
+    elements.shopPicker.querySelectorAll("input[name='profileName']").forEach((input) => {
+      input.checked = selected;
+    });
+    renderButtons();
   }
 
   function selectedPricingRule() {
