@@ -389,10 +389,25 @@ describe("chooseBatchDialogItemIndex", () => {
 });
 
 describe("planBatchDialogCompletion", () => {
-  it("closes and retries an incomplete unconfirmed batch dialog without recording or confirming it", () => {
+  it("confirms applied batch dialog decisions and retries missing products on the current page", () => {
     expect(planBatchDialogCompletion({
       confirmed: false,
       footerMatches: false,
+      appliedProductIds: ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"],
+      missingProductIds: ["h2606180942431655"]
+    })).toEqual({
+      shouldCloseDialog: false,
+      shouldConfirmDialog: true,
+      shouldRecordResults: true,
+      shouldRepeatCurrentPage: true
+    });
+  });
+
+  it("closes and retries an incomplete unconfirmed batch dialog when nothing was applied", () => {
+    expect(planBatchDialogCompletion({
+      confirmed: false,
+      footerMatches: false,
+      appliedProductIds: [],
       missingProductIds: ["h2606180942431655"]
     })).toEqual({
       shouldCloseDialog: true,
@@ -406,6 +421,7 @@ describe("planBatchDialogCompletion", () => {
     expect(planBatchDialogCompletion({
       confirmed: false,
       footerMatches: true,
+      appliedProductIds: ["p1"],
       missingProductIds: []
     })).toEqual({
       shouldCloseDialog: false,

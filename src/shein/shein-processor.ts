@@ -118,15 +118,16 @@ export function chooseBatchDialogItemIndex(
 }
 
 export function planBatchDialogCompletion(
-  result: Pick<BatchDialogResult, "confirmed" | "footerMatches" | "missingProductIds">
+  result: Pick<BatchDialogResult, "confirmed" | "footerMatches" | "appliedProductIds" | "missingProductIds">
 ): BatchDialogCompletionPlan {
   const hasMissingProducts = result.missingProductIds.length > 0;
-  const isIncompleteUnconfirmedDialog = hasMissingProducts && !result.footerMatches && !result.confirmed;
+  const hasAppliedProducts = result.appliedProductIds.length > 0;
+  const isUnusableUnconfirmedDialog = hasMissingProducts && !hasAppliedProducts && !result.footerMatches && !result.confirmed;
 
   return {
-    shouldCloseDialog: isIncompleteUnconfirmedDialog,
-    shouldConfirmDialog: !isIncompleteUnconfirmedDialog && !result.confirmed,
-    shouldRecordResults: !isIncompleteUnconfirmedDialog,
+    shouldCloseDialog: isUnusableUnconfirmedDialog,
+    shouldConfirmDialog: !isUnusableUnconfirmedDialog && !result.confirmed,
+    shouldRecordResults: !isUnusableUnconfirmedDialog,
     shouldRepeatCurrentPage: hasMissingProducts
   };
 }
