@@ -7,6 +7,7 @@ import type { HubstudioClient, HubstudioProfile } from "../../src/hubstudio/hubs
 import { PricingRunner } from "../../src/runner/pricing-runner.js";
 
 const config: AppConfig = {
+  host: "127.0.0.1",
   port: 3210,
   hubstudioApiBase: "http://hubstudio.test",
   hubstudioApiToken: "token",

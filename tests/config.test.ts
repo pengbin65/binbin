@@ -4,6 +4,7 @@ import { loadConfig } from "../src/config.js";
 describe("loadConfig", () => {
   it("loads defaults and numeric overrides", () => {
     expect(loadConfig({})).toMatchObject({
+      host: "127.0.0.1",
       port: 3210,
       hubstudioProfileNames: ["女装希音1"],
       retryAttempts: 3,
@@ -19,6 +20,12 @@ describe("loadConfig", () => {
       retryAttempts: 5,
       retryDelayMs: 250
     });
+  });
+
+  it("loads the server host for LAN access", () => {
+    expect(loadConfig({
+      HOST: "0.0.0.0"
+    }).host).toBe("0.0.0.0");
   });
 
   it("loads multiple Hubstudio profile names from comma-separated env", () => {

@@ -1,4 +1,5 @@
 export type AppConfig = {
+  host: string;
   port: number;
   hubstudioApiBase: string;
   hubstudioApiToken: string;
@@ -19,6 +20,7 @@ function parsePositiveInteger(name: string, value: string | undefined, defaultVa
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
+    host: env.HOST?.trim() || "127.0.0.1",
     port: parsePositiveInteger("PORT", env.PORT, 3210),
     hubstudioApiBase: env.HUBSTUDIO_API_BASE ?? "http://127.0.0.1:6873",
     hubstudioApiToken: env.HUBSTUDIO_API_TOKEN ?? "",

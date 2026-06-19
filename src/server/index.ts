@@ -12,6 +12,6 @@ const server = http.createServer(app);
 
 attachStateWebSocket(server, state);
 
-server.listen(config.port, () => {
-  console.log(`Pricing server listening on http://localhost:${config.port}`);
+server.listen(config.port, config.host, () => {
+  console.log(`Pricing server listening on http://${config.host}:${config.port}`);
 });
