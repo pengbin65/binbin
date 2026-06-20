@@ -6,3 +6,4 @@ dist/
 runtime/
 playwright-report/
 test-results/
+release/
