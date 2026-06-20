@@ -12,3 +12,13 @@ describe("control panel shop bulk controls", () => {
     expect(script).toContain("setAllShopsSelected(false)");
   });
 });
+
+describe("control panel connection fallback", () => {
+  it("keeps polling state when WebSocket is unavailable", () => {
+    const script = readFileSync("public/app.js", "utf8");
+
+    expect(script).toContain("startStatePolling()");
+    expect(script).toContain("stopStatePolling()");
+    expect(script).toContain("window.setInterval(fetchState");
+  });
+});

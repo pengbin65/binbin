@@ -34,6 +34,7 @@
     pendingAction: undefined,
     socketConnected: false,
     fetchLoaded: false,
+    pollingTimer: undefined,
     profileNames: []
   };
 
@@ -66,6 +67,7 @@
 
   fetchProfiles();
   fetchState();
+  startStatePolling();
   connectWebSocket();
   render();
 
@@ -107,6 +109,7 @@
 
     socket.addEventListener("open", () => {
       state.socketConnected = true;
+      stopStatePolling();
       clearError();
       renderConnection();
     });
@@ -122,15 +125,32 @@
 
     socket.addEventListener("close", () => {
       state.socketConnected = false;
+      startStatePolling();
       renderConnection();
       window.setTimeout(connectWebSocket, 2000);
     });
 
     socket.addEventListener("error", () => {
       state.socketConnected = false;
+      startStatePolling();
       showError("WebSocket 连接异常，正在重试");
       renderConnection();
     });
+  }
+
+  function startStatePolling() {
+    if (state.pollingTimer) {
+      return;
+    }
+    state.pollingTimer = window.setInterval(fetchState, 2000);
+  }
+
+  function stopStatePolling() {
+    if (!state.pollingTimer) {
+      return;
+    }
+    window.clearInterval(state.pollingTimer);
+    state.pollingTimer = undefined;
   }
 
   async function postAction(action) {
