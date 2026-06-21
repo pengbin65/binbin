@@ -42,7 +42,7 @@ describe("createApp", () => {
     });
   });
 
-  it("passes selected profile names and pricing rule to the runner on start", async () => {
+  it("passes selected profile names, pricing rule, and low-price threshold to the runner on start", async () => {
     const state = new TaskStateStore();
     const run = vi.fn(async () => undefined);
     const baseUrl = await listen(createApp({
@@ -54,11 +54,15 @@ describe("createApp", () => {
     const response = await fetch(`${baseUrl}/api/start`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ profileNames: ["女装希音2"], pricingRule: "low_price" })
+      body: JSON.stringify({
+        profileNames: ["女装希音2"],
+        pricingRule: "low_price",
+        pricingOptions: { lowPriceThreshold: 1.2 }
+      })
     });
 
     expect(response.status).toBe(202);
-    expect(run).toHaveBeenCalledWith(["女装希音2"], "low_price");
+    expect(run).toHaveBeenCalledWith(["女装希音2"], "low_price", { lowPriceThreshold: 1.2 });
   });
 
   it("rejects start when no selected profile names are provided", async () => {

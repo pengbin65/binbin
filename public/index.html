@@ -120,6 +120,15 @@
         margin: 0;
       }
 
+      .shop-option input[type="number"] {
+        width: 72px;
+        min-height: 24px;
+        padding: 2px 6px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        font: inherit;
+      }
+
       button {
         min-width: 72px;
         min-height: 34px;
@@ -381,12 +390,14 @@
           <div class="shop-picker" id="shopPicker" aria-label="店铺选择"></div>
           <div class="rule-picker" id="rulePicker" aria-label="核价规则">
             <label class="shop-option">
-              <input type="radio" name="pricingRule" value="women_shein" checked>
+              <input type="radio" name="pricingRule" value="women_shein">
               女装希音规则
             </label>
             <label class="shop-option">
-              <input type="radio" name="pricingRule" value="low_price">
-              低价规则 >= $0.7
+              <input type="radio" name="pricingRule" value="low_price" checked>
+              低价规则 >=
+              <input type="number" id="lowPriceThresholdInput" min="0.01" step="0.01" value="0.70" aria-label="低价规则阈值">
+              美金
             </label>
           </div>
           <div class="controls" aria-label="任务控制">

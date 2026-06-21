@@ -94,7 +94,7 @@ describe("PricingRunner", () => {
     expect(state.snapshot().status).toBe("completed");
   });
 
-  it("passes the selected pricing rule to each SHEIN processor", async () => {
+  it("passes the selected pricing rule and options to each SHEIN processor", async () => {
     const state = new TaskStateStore();
     const page = {} as Page;
     const profile: HubstudioProfile = { id: "profile-1", name: "profile-name" };
@@ -117,9 +117,9 @@ describe("PricingRunner", () => {
       createProcessor
     });
 
-    await runner.run(["profile-name"], "low_price");
+    await runner.run(["profile-name"], "low_price", { lowPriceThreshold: 1.2 });
 
-    expect(createProcessor).toHaveBeenCalledWith(page, "low_price");
+    expect(createProcessor).toHaveBeenCalledWith(page, "low_price", { lowPriceThreshold: 1.2 });
     expect(processAllPages).toHaveBeenCalledTimes(1);
   });
 

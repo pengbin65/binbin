@@ -6,11 +6,15 @@ export type PricingInput = {
 
 export type PricingRuleId = "women_shein" | "low_price";
 
+export type PricingOptions = {
+  lowPriceThreshold?: number;
+};
+
 export type PricingDecisionReason =
   | "CURRENT_PRICE_ABOVE_70_PERCENT"
   | "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_8"
-  | "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_0_7"
-  | "OFFICIAL_SUGGESTED_PRICE_BELOW_0_7"
+  | "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_LOW_PRICE_THRESHOLD"
+  | "OFFICIAL_SUGGESTED_PRICE_BELOW_LOW_PRICE_THRESHOLD"
   | "FAILED_BOTH_RULES";
 
 export type PricingDecision = {
@@ -30,17 +34,26 @@ export function parsePrice(value: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function evaluatePricing(input: PricingInput, rule: PricingRuleId = "women_shein"): PricingDecision {
+export function normalizeLowPriceThreshold(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0.7;
+}
+
+export function evaluatePricing(
+  input: PricingInput,
+  rule: PricingRuleId = "women_shein",
+  options: PricingOptions = {}
+): PricingDecision {
   const originalPrice = input.quotedPrice - 10;
   const threshold70Percent = (originalPrice * 70) / 100;
 
   if (rule === "low_price") {
-    if (input.officialSuggestedPrice >= 0.7) {
+    const lowPriceThreshold = normalizeLowPriceThreshold(options.lowPriceThreshold);
+    if (input.officialSuggestedPrice >= lowPriceThreshold) {
       return {
         originalPrice,
         threshold70Percent,
         passed: true,
-        reason: "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_0_7"
+        reason: "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_LOW_PRICE_THRESHOLD"
       };
     }
 
@@ -48,7 +61,7 @@ export function evaluatePricing(input: PricingInput, rule: PricingRuleId = "wome
       originalPrice,
       threshold70Percent,
       passed: false,
-      reason: "OFFICIAL_SUGGESTED_PRICE_BELOW_0_7"
+      reason: "OFFICIAL_SUGGESTED_PRICE_BELOW_LOW_PRICE_THRESHOLD"
     };
   }
 

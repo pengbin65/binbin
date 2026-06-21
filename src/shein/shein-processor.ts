@@ -1,5 +1,5 @@
 import type { Locator, Page } from "playwright";
-import { evaluatePricing, parsePrice, type PricingInput, type PricingRuleId } from "../domain/pricing.js";
+import { evaluatePricing, parsePrice, type PricingInput, type PricingOptions, type PricingRuleId } from "../domain/pricing.js";
 import type { TaskStateStore } from "../domain/task-state.js";
 
 export type RowPrices = PricingInput;
@@ -67,7 +67,8 @@ const PHASE = "shein";
 
 export async function readRowPrices(
   row: Pick<Locator, "textContent">,
-  pricingRule: PricingRuleId = "women_shein"
+  pricingRule: PricingRuleId = "women_shein",
+  pricingOptions: PricingOptions = {}
 ): Promise<RowPrices | null> {
   const text = await row.textContent().catch(() => null);
   if (!text) {
@@ -83,7 +84,7 @@ export async function readRowPrices(
     return { quotedPrice, currentSellingPrice, officialSuggestedPrice };
   }
 
-  return extractUnlabelledPendingTaskPrices(text, pricingRule);
+  return extractUnlabelledPendingTaskPrices(text, pricingRule, pricingOptions);
 }
 
 export function extractBatchDialogProductId(text: string): string | null {
@@ -134,7 +135,8 @@ export function planBatchDialogCompletion(
 
 async function readProductLevelRowPrices(
   row: Pick<Locator, "textContent">,
-  pricingRule: PricingRuleId = "women_shein"
+  pricingRule: PricingRuleId = "women_shein",
+  pricingOptions: PricingOptions = {}
 ): Promise<RowPrices | null> {
   const text = await row.textContent().catch(() => null);
   if (!text) {
@@ -143,10 +145,10 @@ async function readProductLevelRowPrices(
 
   const pendingPairs = extractUnlabelledPendingTaskPricePairs(text);
   if (pendingPairs.length > 0) {
-    return pendingPairs.find((pair) => evaluatePricing(pair, pricingRule).passed) ?? pendingPairs[0] ?? null;
+    return pendingPairs.find((pair) => evaluatePricing(pair, pricingRule, pricingOptions).passed) ?? pendingPairs[0] ?? null;
   }
 
-  return readRowPrices(row, pricingRule);
+  return readRowPrices(row, pricingRule, pricingOptions);
 }
 
 export class SheinProcessor {
@@ -158,7 +160,8 @@ export class SheinProcessor {
     private readonly page: Page,
     private readonly state: TaskStateStore,
     private readonly retry: RetryOptions,
-    private readonly pricingRule: PricingRuleId = "women_shein"
+    private readonly pricingRule: PricingRuleId = "women_shein",
+    private readonly pricingOptions: PricingOptions = {}
   ) {}
 
   async processAllPages(): Promise<void> {
@@ -792,7 +795,7 @@ export class SheinProcessor {
 
     for (let index = 0; index < count; index += 1) {
       const row = rows.nth(index);
-      const rowPrices = await readProductLevelRowPrices(row, this.pricingRule);
+      const rowPrices = await readProductLevelRowPrices(row, this.pricingRule, this.pricingOptions);
       if (!rowPrices) {
         throw new Error("SHEIN row price data is unreadable");
       }
@@ -801,7 +804,7 @@ export class SheinProcessor {
       pageDecisions.push({
         productId: productIdentity.productId,
         prices: rowPrices,
-        decision: evaluatePricing(rowPrices, this.pricingRule)
+        decision: evaluatePricing(rowPrices, this.pricingRule, this.pricingOptions)
       });
     }
 
@@ -1687,7 +1690,7 @@ export class SheinProcessor {
 
   private async processRow(row: Locator, index: number, retriedAfterRowShift = false): Promise<boolean> {
     const prices = await this.withRetry(async () => {
-      const rowPrices = await readRowPrices(row, this.pricingRule);
+      const rowPrices = await readRowPrices(row, this.pricingRule, this.pricingOptions);
       if (!rowPrices) {
         throw new Error("SHEIN row price data is unreadable");
       }
@@ -1706,7 +1709,7 @@ export class SheinProcessor {
       return false;
     }
 
-    const decision = evaluatePricing(prices, this.pricingRule);
+    const decision = evaluatePricing(prices, this.pricingRule, this.pricingOptions);
     const productIdentity = await extractProductIdentity(row, index, this.pageIndex);
     const { productId } = productIdentity;
 
@@ -2224,7 +2227,8 @@ function extractLabelledPrice(text: string, label: string): number | null {
 
 function extractUnlabelledPendingTaskPrices(
   text: string,
-  pricingRule: PricingRuleId = "women_shein"
+  pricingRule: PricingRuleId = "women_shein",
+  pricingOptions: PricingOptions = {}
 ): RowPrices | null {
   if (!/议价单号|Bargain/i.test(text)) {
     return null;
@@ -2252,7 +2256,7 @@ function extractUnlabelledPendingTaskPrices(
     });
   }
 
-  return pairs.find((pair) => !evaluatePricing(pair, pricingRule).passed) ?? pairs[0] ?? null;
+  return pairs.find((pair) => !evaluatePricing(pair, pricingRule, pricingOptions).passed) ?? pairs[0] ?? null;
 }
 
 function extractUnlabelledPendingTaskPricePairs(text: string): RowPrices[] {

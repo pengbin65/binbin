@@ -35,17 +35,36 @@ describe("evaluatePricing", () => {
     });
   });
 
-  it("passes low-price rule when official suggested price is at least 0.7", () => {
-    expect(evaluatePricing({ quotedPrice: 20, currentSellingPrice: 0, officialSuggestedPrice: 0.7 }, "low_price")).toMatchObject({
+  it("passes low-price rule when official suggested price is at least the configured threshold", () => {
+    expect(evaluatePricing(
+      { quotedPrice: 20, currentSellingPrice: 0, officialSuggestedPrice: 1.2 },
+      "low_price",
+      { lowPriceThreshold: 1.2 }
+    )).toMatchObject({
       passed: true,
-      reason: "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_0_7"
+      reason: "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_LOW_PRICE_THRESHOLD"
     });
   });
 
-  it("fails low-price rule when official suggested price is below 0.7", () => {
-    expect(evaluatePricing({ quotedPrice: 20, currentSellingPrice: 999, officialSuggestedPrice: 0.69 }, "low_price")).toMatchObject({
+  it("fails low-price rule when official suggested price is below the configured threshold", () => {
+    expect(evaluatePricing(
+      { quotedPrice: 20, currentSellingPrice: 999, officialSuggestedPrice: 1.19 },
+      "low_price",
+      { lowPriceThreshold: 1.2 }
+    )).toMatchObject({
       passed: false,
-      reason: "OFFICIAL_SUGGESTED_PRICE_BELOW_0_7"
+      reason: "OFFICIAL_SUGGESTED_PRICE_BELOW_LOW_PRICE_THRESHOLD"
+    });
+  });
+
+  it("falls back to 0.7 when the low-price threshold is invalid", () => {
+    expect(evaluatePricing(
+      { quotedPrice: 20, currentSellingPrice: 0, officialSuggestedPrice: 0.7 },
+      "low_price",
+      { lowPriceThreshold: 0 }
+    )).toMatchObject({
+      passed: true,
+      reason: "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_LOW_PRICE_THRESHOLD"
     });
   });
 });

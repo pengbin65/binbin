@@ -2,11 +2,11 @@ import type http from "node:http";
 import path from "node:path";
 import express, { type Express } from "express";
 import { WebSocketServer } from "ws";
-import type { PricingRuleId } from "../domain/pricing.js";
+import type { PricingOptions, PricingRuleId } from "../domain/pricing.js";
 import type { TaskStateStore } from "../domain/task-state.js";
 
 export type RunnerLike = {
-  run(profileNames?: string[], pricingRule?: PricingRuleId): Promise<void>;
+  run(profileNames?: string[], pricingRule?: PricingRuleId, pricingOptions?: PricingOptions): Promise<void>;
   stop?: () => Promise<void>;
 };
 
@@ -57,6 +57,7 @@ export function createApp(options: CreateAppOptions): Express {
 
     const selectedProfileNames = parseSelectedProfileNames(_request.body, options.profileNames);
     const pricingRule = parsePricingRule(_request.body);
+    const pricingOptions = parsePricingOptions(_request.body);
     if (selectedProfileNames && selectedProfileNames.length === 0) {
       response.status(400).json({ error: "Select at least one shop before starting" });
       return;
@@ -67,7 +68,7 @@ export function createApp(options: CreateAppOptions): Express {
     response.status(202).json({ started: true });
 
     const runPromise = Promise.resolve()
-      .then(() => options.runner.run(selectedProfileNames, pricingRule))
+      .then(() => options.runner.run(selectedProfileNames, pricingRule, pricingOptions))
       .catch((error: unknown) => {
         options.state.log("server", `Runner failed: ${formatErrorMessage(error)}`, "error");
         options.state.setStatus("failed");
@@ -149,6 +150,21 @@ function parsePricingRule(body: unknown): PricingRuleId {
 
   const pricingRule = (body as { pricingRule?: unknown }).pricingRule;
   return pricingRule === "low_price" || pricingRule === "women_shein" ? pricingRule : "women_shein";
+}
+
+function parsePricingOptions(body: unknown): PricingOptions {
+  if (!body || typeof body !== "object") {
+    return {};
+  }
+
+  const rawOptions = (body as { pricingOptions?: unknown }).pricingOptions;
+  if (!rawOptions || typeof rawOptions !== "object") {
+    return {};
+  }
+
+  const rawThreshold = (rawOptions as { lowPriceThreshold?: unknown }).lowPriceThreshold;
+  const lowPriceThreshold = typeof rawThreshold === "number" ? rawThreshold : Number(rawThreshold);
+  return Number.isFinite(lowPriceThreshold) && lowPriceThreshold > 0 ? { lowPriceThreshold } : {};
 }
 
 function parseSelectedProfileNames(body: unknown, configuredProfileNames: string[] | undefined): string[] | undefined {

@@ -22,3 +22,16 @@ describe("control panel connection fallback", () => {
     expect(script).toContain("window.setInterval(fetchState");
   });
 });
+
+describe("control panel low-price rule controls", () => {
+  it("defaults to low-price rule and sends the editable low-price threshold", () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const script = readFileSync("public/app.js", "utf8");
+
+    expect(html).toContain('name="pricingRule" value="low_price" checked');
+    expect(html).toContain('id="lowPriceThresholdInput"');
+    expect(html).toContain('value="0.70"');
+    expect(script).toContain("selectedPricingOptions()");
+    expect(script).toContain("lowPriceThreshold");
+  });
+});

@@ -24,8 +24,8 @@
   const reasonLabels = {
     CURRENT_PRICE_ABOVE_70_PERCENT: "当前售价高于 70% 阈值",
     OFFICIAL_SUGGESTED_PRICE_AT_LEAST_8: "官方建议价至少 8",
-    OFFICIAL_SUGGESTED_PRICE_AT_LEAST_0_7: "官方建议价至少 0.7",
-    OFFICIAL_SUGGESTED_PRICE_BELOW_0_7: "官方建议价低于 0.7",
+    OFFICIAL_SUGGESTED_PRICE_AT_LEAST_LOW_PRICE_THRESHOLD: "官方建议价达到低价阈值",
+    OFFICIAL_SUGGESTED_PRICE_BELOW_LOW_PRICE_THRESHOLD: "官方建议价低于低价阈值",
     FAILED_BOTH_RULES: "未满足核价规则"
   };
 
@@ -47,6 +47,7 @@
     clearAllShopsButton: document.getElementById("clearAllShopsButton"),
     shopPicker: document.getElementById("shopPicker"),
     rulePicker: document.getElementById("rulePicker"),
+    lowPriceThresholdInput: document.getElementById("lowPriceThresholdInput"),
     statusValue: document.getElementById("statusValue"),
     resultCount: document.getElementById("resultCount"),
     pauseValue: document.getElementById("pauseValue"),
@@ -159,7 +160,9 @@
     renderButtons();
 
     try {
-      const body = action === "start" ? { profileNames: selectedProfileNames(), pricingRule: selectedPricingRule() } : undefined;
+      const body = action === "start"
+        ? { profileNames: selectedProfileNames(), pricingRule: selectedPricingRule(), pricingOptions: selectedPricingOptions() }
+        : undefined;
       const response = await fetch(`/api/${action}`, {
         method: "POST",
         headers: {
@@ -313,7 +316,14 @@
 
   function selectedPricingRule() {
     const selected = elements.rulePicker.querySelector("input[name='pricingRule']:checked");
-    return selected ? selected.value : "women_shein";
+    return selected ? selected.value : "low_price";
+  }
+
+  function selectedPricingOptions() {
+    const threshold = Number(elements.lowPriceThresholdInput.value);
+    return {
+      lowPriceThreshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 0.7
+    };
   }
 
   function renderResults(results) {

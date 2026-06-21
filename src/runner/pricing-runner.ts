@@ -1,7 +1,7 @@
 import type { Page } from "playwright";
 import { BrowserSession, type LoginNavigationResult } from "../browser/browser-session.js";
 import type { AppConfig } from "../config.js";
-import type { PricingRuleId } from "../domain/pricing.js";
+import type { PricingOptions, PricingRuleId } from "../domain/pricing.js";
 import type { TaskStateStore } from "../domain/task-state.js";
 import { HubstudioClient } from "../hubstudio/hubstudio-client.js";
 import { SheinProcessor } from "../shein/shein-processor.js";
@@ -15,13 +15,13 @@ export type PricingRunnerOptions = {
   state: TaskStateStore;
   hubstudio?: Pick<HubstudioClient, "findProfileByName" | "startProfile">;
   browser?: Pick<BrowserSession, "connect" | "openShein" | "close">;
-  createProcessor?: (page: Page, pricingRule: PricingRuleId) => ProcessorLike;
+  createProcessor?: (page: Page, pricingRule: PricingRuleId, pricingOptions: PricingOptions) => ProcessorLike;
 };
 
 export class PricingRunner {
   private readonly hubstudio: Pick<HubstudioClient, "findProfileByName" | "startProfile">;
   private readonly browser: Pick<BrowserSession, "connect" | "openShein" | "close">;
-  private readonly createProcessor: (page: Page, pricingRule: PricingRuleId) => ProcessorLike;
+  private readonly createProcessor: (page: Page, pricingRule: PricingRuleId, pricingOptions: PricingOptions) => ProcessorLike;
 
   constructor(private readonly options: PricingRunnerOptions) {
     this.hubstudio = options.hubstudio ?? new HubstudioClient({
@@ -29,10 +29,10 @@ export class PricingRunner {
       apiToken: options.config.hubstudioApiToken
     });
     this.browser = options.browser ?? new BrowserSession();
-    this.createProcessor = options.createProcessor ?? ((page, pricingRule) => new SheinProcessor(page, options.state, {
+    this.createProcessor = options.createProcessor ?? ((page, pricingRule, pricingOptions) => new SheinProcessor(page, options.state, {
       attempts: options.config.retryAttempts,
       delayMs: options.config.retryDelayMs
-    }, pricingRule));
+    }, pricingRule, pricingOptions));
   }
 
   async stop(): Promise<void> {
@@ -41,13 +41,17 @@ export class PricingRunner {
     await this.closeActiveSession();
   }
 
-  async run(profileNames = this.options.config.hubstudioProfileNames, pricingRule: PricingRuleId = "women_shein"): Promise<void> {
+  async run(
+    profileNames = this.options.config.hubstudioProfileNames,
+    pricingRule: PricingRuleId = "women_shein",
+    pricingOptions: PricingOptions = {}
+  ): Promise<void> {
     const { config, state } = this.options;
     state.start();
 
     try {
       for (const [index, profileName] of profileNames.entries()) {
-        await this.runProfile(profileName, pricingRule);
+        await this.runProfile(profileName, pricingRule, pricingOptions);
 
         const snapshot = state.snapshot();
         if (snapshot.status !== "completed") {
@@ -68,7 +72,7 @@ export class PricingRunner {
     }
   }
 
-  private async runProfile(profileName: string, pricingRule: PricingRuleId): Promise<void> {
+  private async runProfile(profileName: string, pricingRule: PricingRuleId, pricingOptions: PricingOptions): Promise<void> {
     const { state } = this.options;
 
     state.log("hubstudio", `Finding Hubstudio profile: ${profileName}`);
@@ -109,7 +113,7 @@ export class PricingRunner {
       return;
     }
 
-    await this.createProcessor(navigation.page, pricingRule).processAllPages();
+    await this.createProcessor(navigation.page, pricingRule, pricingOptions).processAllPages();
   }
 
   private shouldStopAfter(step: string): boolean {
