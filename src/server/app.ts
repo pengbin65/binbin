@@ -4,6 +4,7 @@ import express, { type Express } from "express";
 import { WebSocketServer } from "ws";
 import type { PricingOptions, PricingRuleId } from "../domain/pricing.js";
 import type { TaskStateStore } from "../domain/task-state.js";
+import type { AppSettings, SettingsStore } from "../settings.js";
 
 export type RunnerLike = {
   run(profileNames?: string[], pricingRule?: PricingRuleId, pricingOptions?: PricingOptions): Promise<void>;
@@ -14,6 +15,7 @@ export type CreateAppOptions = {
   state: TaskStateStore;
   runner: RunnerLike;
   profileNames?: string[];
+  settingsStore?: SettingsStore;
   publicDir?: string;
 };
 
@@ -36,7 +38,19 @@ export function createApp(options: CreateAppOptions): Express {
   });
 
   app.get("/api/profiles", (_request, response) => {
-    response.json({ profileNames: options.profileNames ?? [] });
+    response.json({ profileNames: loadSettings(options).profileNames });
+  });
+
+  app.get("/api/settings", (_request, response) => {
+    response.json(loadSettings(options));
+  });
+
+  app.post("/api/settings", (_request, response) => {
+    try {
+      response.json(saveSettings(options, _request.body));
+    } catch (error) {
+      response.status(500).json({ error: formatErrorMessage(error) });
+    }
   });
 
   app.post("/api/start", (_request, response) => {
@@ -55,9 +69,10 @@ export function createApp(options: CreateAppOptions): Express {
       return;
     }
 
-    const selectedProfileNames = parseSelectedProfileNames(_request.body, options.profileNames);
-    const pricingRule = parsePricingRule(_request.body);
-    const pricingOptions = parsePricingOptions(_request.body);
+    const settings = loadSettings(options);
+    const selectedProfileNames = parseSelectedProfileNames(_request.body, settings.profileNames.length ? settings.profileNames : undefined);
+    const pricingRule = parsePricingRule(_request.body, settings.pricingRule);
+    const pricingOptions = parsePricingOptions(_request.body, settings.pricingOptions);
     if (selectedProfileNames && selectedProfileNames.length === 0) {
       response.status(400).json({ error: "Select at least one shop before starting" });
       return;
@@ -143,28 +158,48 @@ export function attachStateWebSocket(
   return webSocketServer;
 }
 
-function parsePricingRule(body: unknown): PricingRuleId {
+function loadSettings(options: CreateAppOptions): AppSettings {
+  if (options.settingsStore) {
+    return options.settingsStore.load();
+  }
+
+  return {
+    profileNames: options.profileNames ?? [],
+    pricingRule: "low_price",
+    pricingOptions: { lowPriceThreshold: 0.7 }
+  };
+}
+
+function saveSettings(options: CreateAppOptions, body: unknown): AppSettings {
+  if (!options.settingsStore) {
+    return loadSettings(options);
+  }
+
+  return options.settingsStore.save(body && typeof body === "object" ? body : {});
+}
+
+function parsePricingRule(body: unknown, defaultRule: PricingRuleId): PricingRuleId {
   if (!body || typeof body !== "object") {
-    return "women_shein";
+    return defaultRule;
   }
 
   const pricingRule = (body as { pricingRule?: unknown }).pricingRule;
-  return pricingRule === "low_price" || pricingRule === "women_shein" ? pricingRule : "women_shein";
+  return pricingRule === "low_price" || pricingRule === "women_shein" ? pricingRule : defaultRule;
 }
 
-function parsePricingOptions(body: unknown): PricingOptions {
+function parsePricingOptions(body: unknown, defaultOptions: PricingOptions): PricingOptions {
   if (!body || typeof body !== "object") {
-    return {};
+    return defaultOptions;
   }
 
   const rawOptions = (body as { pricingOptions?: unknown }).pricingOptions;
   if (!rawOptions || typeof rawOptions !== "object") {
-    return {};
+    return defaultOptions;
   }
 
   const rawThreshold = (rawOptions as { lowPriceThreshold?: unknown }).lowPriceThreshold;
   const lowPriceThreshold = typeof rawThreshold === "number" ? rawThreshold : Number(rawThreshold);
-  return Number.isFinite(lowPriceThreshold) && lowPriceThreshold > 0 ? { lowPriceThreshold } : {};
+  return Number.isFinite(lowPriceThreshold) && lowPriceThreshold > 0 ? { lowPriceThreshold } : defaultOptions;
 }
 
 function parseSelectedProfileNames(body: unknown, configuredProfileNames: string[] | undefined): string[] | undefined {

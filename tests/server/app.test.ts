@@ -3,6 +3,7 @@ import { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TaskStateStore } from "../../src/domain/task-state.js";
 import { attachStateWebSocket, createApp } from "../../src/server/app.js";
+import type { AppSettings, SettingsInput } from "../../src/settings.js";
 
 const servers: http.Server[] = [];
 
@@ -42,6 +43,56 @@ describe("createApp", () => {
     });
   });
 
+  it("returns and saves editable settings", async () => {
+    const state = new TaskStateStore();
+    let settings: AppSettings = {
+      profileNames: ["shop-a"],
+      pricingRule: "low_price" as const,
+      pricingOptions: { lowPriceThreshold: 0.7 }
+    };
+    const baseUrl = await listen(createApp({
+      state,
+      runner: { run: vi.fn() },
+      settingsStore: {
+        load: () => settings,
+        save: (nextSettings: SettingsInput) => {
+          settings = {
+            profileNames: Array.isArray(nextSettings.profileNames) ? nextSettings.profileNames.filter((name): name is string => typeof name === "string") : settings.profileNames,
+            pricingRule: nextSettings.pricingRule === "women_shein" || nextSettings.pricingRule === "low_price" ? nextSettings.pricingRule : settings.pricingRule,
+            pricingOptions: nextSettings.pricingOptions && typeof nextSettings.pricingOptions === "object"
+              ? { lowPriceThreshold: Number((nextSettings.pricingOptions as { lowPriceThreshold?: unknown }).lowPriceThreshold) }
+              : settings.pricingOptions
+          };
+          return settings;
+        }
+      }
+    }));
+
+    const getResponse = await fetch(`${baseUrl}/api/settings`);
+    const saveResponse = await fetch(`${baseUrl}/api/settings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        profileNames: ["shop-b", "shop-c"],
+        pricingRule: "low_price",
+        pricingOptions: { lowPriceThreshold: 1.15 }
+      })
+    });
+
+    expect(getResponse.status).toBe(200);
+    await expect(getResponse.json()).resolves.toEqual({
+      profileNames: ["shop-a"],
+      pricingRule: "low_price",
+      pricingOptions: { lowPriceThreshold: 0.7 }
+    });
+    expect(saveResponse.status).toBe(200);
+    await expect(saveResponse.json()).resolves.toEqual({
+      profileNames: ["shop-b", "shop-c"],
+      pricingRule: "low_price",
+      pricingOptions: { lowPriceThreshold: 1.15 }
+    });
+  });
+
   it("passes selected profile names, pricing rule, and low-price threshold to the runner on start", async () => {
     const state = new TaskStateStore();
     const run = vi.fn(async () => undefined);
@@ -63,6 +114,32 @@ describe("createApp", () => {
 
     expect(response.status).toBe(202);
     expect(run).toHaveBeenCalledWith(["女装希音2"], "low_price", { lowPriceThreshold: 1.2 });
+  });
+
+  it("uses saved settings when start omits profile and pricing choices", async () => {
+    const state = new TaskStateStore();
+    const run = vi.fn(async () => undefined);
+    const baseUrl = await listen(createApp({
+      state,
+      runner: { run },
+      settingsStore: {
+        load: () => ({
+          profileNames: ["saved-shop"],
+          pricingRule: "low_price",
+          pricingOptions: { lowPriceThreshold: 1.3 }
+        }),
+        save: () => ({
+          profileNames: ["saved-shop"],
+          pricingRule: "low_price",
+          pricingOptions: { lowPriceThreshold: 1.3 }
+        })
+      }
+    }));
+
+    const response = await fetch(`${baseUrl}/api/start`, { method: "POST" });
+
+    expect(response.status).toBe(202);
+    expect(run).toHaveBeenCalledWith(["saved-shop"], "low_price", { lowPriceThreshold: 1.3 });
   });
 
   it("rejects start when no selected profile names are provided", async () => {

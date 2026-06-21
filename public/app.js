@@ -35,7 +35,8 @@
     socketConnected: false,
     fetchLoaded: false,
     pollingTimer: undefined,
-    profileNames: []
+    profileNames: [],
+    selectedProfileNames: new Set()
   };
 
   const elements = {
@@ -45,6 +46,9 @@
     stopButton: document.getElementById("stopButton"),
     selectAllShopsButton: document.getElementById("selectAllShopsButton"),
     clearAllShopsButton: document.getElementById("clearAllShopsButton"),
+    newShopNameInput: document.getElementById("newShopNameInput"),
+    addShopButton: document.getElementById("addShopButton"),
+    saveSettingsButton: document.getElementById("saveSettingsButton"),
     shopPicker: document.getElementById("shopPicker"),
     rulePicker: document.getElementById("rulePicker"),
     lowPriceThresholdInput: document.getElementById("lowPriceThresholdInput"),
@@ -65,21 +69,29 @@
   elements.stopButton.addEventListener("click", () => postAction("stop"));
   elements.selectAllShopsButton.addEventListener("click", () => setAllShopsSelected(true));
   elements.clearAllShopsButton.addEventListener("click", () => setAllShopsSelected(false));
+  elements.addShopButton.addEventListener("click", addShopFromInput);
+  elements.saveSettingsButton.addEventListener("click", saveSettings);
+  elements.newShopNameInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addShopFromInput();
+    }
+  });
 
-  fetchProfiles();
+  fetchSettings();
   fetchState();
   startStatePolling();
   connectWebSocket();
   render();
 
-  async function fetchProfiles() {
+  async function fetchSettings() {
     try {
-      const response = await fetch("/api/profiles", { headers: { Accept: "application/json" } });
+      const response = await fetch("/api/settings", { headers: { Accept: "application/json" } });
       if (!response.ok) {
-        throw new Error(`GET /api/profiles failed: ${response.status}`);
+        throw new Error(`GET /api/settings failed: ${response.status}`);
       }
       const payload = await response.json();
-      state.profileNames = Array.isArray(payload.profileNames) ? payload.profileNames.filter((name) => typeof name === "string") : [];
+      applySettings(payload);
       renderShopPicker();
       clearError();
     } catch (error) {
@@ -270,6 +282,9 @@
     elements.stopButton.disabled = isBusy || snapshot.status === "stopped";
     elements.selectAllShopsButton.disabled = isBusy || isActive;
     elements.clearAllShopsButton.disabled = isBusy || isActive;
+    elements.addShopButton.disabled = isBusy || isActive;
+    elements.saveSettingsButton.disabled = isBusy || isActive;
+    elements.newShopNameInput.disabled = isBusy || isActive;
 
     elements.startButton.textContent = state.pendingAction === "start" ? "开始中" : "开始";
     elements.pauseButton.textContent = state.pendingAction === "pause" ? "暂停中" : "暂停";
@@ -293,9 +308,26 @@
       input.type = "checkbox";
       input.name = "profileName";
       input.value = profileName;
-      input.checked = true;
-      input.addEventListener("change", renderButtons);
-      label.append(input, document.createTextNode(profileName));
+      input.checked = state.selectedProfileNames.has(profileName);
+      input.addEventListener("change", () => {
+        if (input.checked) {
+          state.selectedProfileNames.add(profileName);
+        } else {
+          state.selectedProfileNames.delete(profileName);
+        }
+        renderButtons();
+      });
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "shop-option-remove";
+      removeButton.setAttribute("aria-label", `删除店铺 ${profileName}`);
+      removeButton.textContent = "×";
+      removeButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        removeShop(profileName);
+      });
+      label.append(input, document.createTextNode(profileName), removeButton);
       elements.shopPicker.appendChild(label);
     }
     renderButtons();
@@ -308,6 +340,7 @@
   }
 
   function setAllShopsSelected(selected) {
+    state.selectedProfileNames = selected ? new Set(state.profileNames) : new Set();
     elements.shopPicker.querySelectorAll("input[name='profileName']").forEach((input) => {
       input.checked = selected;
     });
@@ -324,6 +357,74 @@
     return {
       lowPriceThreshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 0.7
     };
+  }
+
+  function applySettings(payload) {
+    const profileNames = Array.isArray(payload.profileNames) ? payload.profileNames.filter((name) => typeof name === "string" && name.trim()).map((name) => name.trim()) : [];
+    state.profileNames = Array.from(new Set(profileNames));
+    state.selectedProfileNames = new Set(state.profileNames);
+
+    const pricingRule = payload.pricingRule === "women_shein" ? "women_shein" : "low_price";
+    const selectedRule = elements.rulePicker.querySelector(`input[name='pricingRule'][value='${pricingRule}']`);
+    if (selectedRule) {
+      selectedRule.checked = true;
+    }
+
+    const threshold = Number(payload.pricingOptions && payload.pricingOptions.lowPriceThreshold);
+    elements.lowPriceThresholdInput.value = (Number.isFinite(threshold) && threshold > 0 ? threshold : 0.7).toFixed(2);
+  }
+
+  function addShopFromInput() {
+    const profileName = elements.newShopNameInput.value.trim();
+    if (!profileName) {
+      return;
+    }
+
+    if (!state.profileNames.includes(profileName)) {
+      state.profileNames.push(profileName);
+    }
+    state.selectedProfileNames.add(profileName);
+    elements.newShopNameInput.value = "";
+    renderShopPicker();
+  }
+
+  function removeShop(profileName) {
+    state.profileNames = state.profileNames.filter((name) => name !== profileName);
+    state.selectedProfileNames.delete(profileName);
+    renderShopPicker();
+  }
+
+  async function saveSettings() {
+    state.pendingAction = "saveSettings";
+    clearError();
+    renderButtons();
+
+    try {
+      const response = await fetch("/api/settings", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          profileNames: state.profileNames,
+          pricingRule: selectedPricingRule(),
+          pricingOptions: selectedPricingOptions()
+        })
+      });
+      const payload = await readJsonOrEmpty(response);
+      if (!response.ok) {
+        throw new Error(actionErrorMessage("saveSettings", response, payload));
+      }
+      applySettings(payload);
+      renderShopPicker();
+      clearError();
+    } catch (error) {
+      showError(formatError(error));
+    } finally {
+      state.pendingAction = undefined;
+      renderButtons();
+    }
   }
 
   function renderResults(results) {

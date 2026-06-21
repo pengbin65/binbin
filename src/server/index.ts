@@ -2,12 +2,18 @@ import http from "node:http";
 import { loadConfig } from "../config.js";
 import { TaskStateStore } from "../domain/task-state.js";
 import { PricingRunner } from "../runner/pricing-runner.js";
+import { JsonSettingsStore } from "../settings.js";
 import { attachStateWebSocket, createApp } from "./app.js";
 
 const config = loadConfig();
 const state = new TaskStateStore();
 const runner = new PricingRunner({ config, state });
-const app = createApp({ state, runner, profileNames: config.hubstudioProfileNames });
+const settingsStore = new JsonSettingsStore("data/settings.json", {
+  profileNames: config.hubstudioProfileNames,
+  pricingRule: "low_price",
+  pricingOptions: { lowPriceThreshold: 0.7 }
+});
+const app = createApp({ state, runner, settingsStore });
 const server = http.createServer(app);
 
 attachStateWebSocket(server, state);

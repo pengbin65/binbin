@@ -103,6 +103,23 @@
         margin-bottom: 6px;
       }
 
+      .shop-edit-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+        margin-bottom: 6px;
+      }
+
+      .shop-edit-controls input {
+        min-width: 160px;
+        min-height: 30px;
+        padding: 5px 8px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        font: inherit;
+      }
+
       .shop-option {
         display: inline-flex;
         align-items: center;
@@ -118,6 +135,22 @@
 
       .shop-option input {
         margin: 0;
+      }
+
+      .shop-option-remove {
+        min-width: 24px;
+        min-height: 24px;
+        padding: 0;
+        border-color: var(--border);
+        color: var(--muted);
+        background: transparent;
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .shop-option-remove:hover:not(:disabled) {
+        color: var(--danger);
+        background: #fff1f1;
       }
 
       .shop-option input[type="number"] {
@@ -386,6 +419,11 @@
           <div class="shop-bulk-controls" aria-label="店铺批量选择">
             <button type="button" class="secondary-button" id="selectAllShopsButton">全选店铺</button>
             <button type="button" class="secondary-button" id="clearAllShopsButton">取消全选</button>
+          </div>
+          <div class="shop-edit-controls" aria-label="店铺配置">
+            <input type="text" id="newShopNameInput" placeholder="新增店铺名" autocomplete="off">
+            <button type="button" class="secondary-button" id="addShopButton">添加店铺</button>
+            <button type="button" class="secondary-button" id="saveSettingsButton">保存配置</button>
           </div>
           <div class="shop-picker" id="shopPicker" aria-label="店铺选择"></div>
           <div class="rule-picker" id="rulePicker" aria-label="核价规则">

@@ -35,3 +35,18 @@ describe("control panel low-price rule controls", () => {
     expect(script).toContain("lowPriceThreshold");
   });
 });
+
+describe("control panel editable shop settings", () => {
+  it("renders controls for adding and saving shops", () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const script = readFileSync("public/app.js", "utf8");
+
+    expect(html).toContain('id="newShopNameInput"');
+    expect(html).toContain('id="addShopButton"');
+    expect(html).toContain('id="saveSettingsButton"');
+    expect(script).toContain('fetch("/api/settings"');
+    expect(script).toContain("saveSettings()");
+    expect(script).toContain("addShopFromInput()");
+    expect(script).toContain("removeShop(");
+  });
+});
