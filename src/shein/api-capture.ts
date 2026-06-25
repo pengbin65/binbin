@@ -33,6 +33,8 @@ export type ApiCaptureSnapshot = {
 
 const CANDIDATE_PATTERN = /price|pricing|discuss|negotiation|batch|pending|task|dpas|cost/i;
 const SENSITIVE_HEADER_PATTERN = /cookie|authorization|token|csrf|secret/i;
+const DEFAULT_RESPONSE_PREVIEW_LIMIT = 2_000;
+const DPAS_API_JSON_RESPONSE_PREVIEW_LIMIT = 500_000;
 
 export function classifyCaptureUrl(url: string): CaptureClassification {
   return CANDIDATE_PATTERN.test(url) ? "candidate" : "ignore";
@@ -43,6 +45,14 @@ export function sanitizeHeaders(headers: Record<string, string>): Record<string,
     key,
     SENSITIVE_HEADER_PATTERN.test(key) ? "[redacted]" : value
   ]));
+}
+
+export function responsePreviewLimit(url: string, contentType: string): number {
+  if (url.includes("/dpas-api-prefix/") && contentType.toLowerCase().includes("json")) {
+    return DPAS_API_JSON_RESPONSE_PREVIEW_LIMIT;
+  }
+
+  return DEFAULT_RESPONSE_PREVIEW_LIMIT;
 }
 
 export class ApiCaptureRecorder {

@@ -3,7 +3,12 @@ import { BrowserSession } from "../browser/browser-session.js";
 import type { AppConfig } from "../config.js";
 import type { TaskStateStore } from "../domain/task-state.js";
 import { HubstudioClient } from "../hubstudio/hubstudio-client.js";
-import { ApiCaptureRecorder, writeApiCaptureFile, type ApiCaptureSnapshot } from "../shein/api-capture.js";
+import {
+  ApiCaptureRecorder,
+  responsePreviewLimit,
+  writeApiCaptureFile,
+  type ApiCaptureSnapshot
+} from "../shein/api-capture.js";
 
 type CaptureBrowser = Pick<BrowserSession, "connect" | "openShein" | "close">;
 type CaptureHubstudio = Pick<HubstudioClient, "findProfileByName" | "startProfile">;
@@ -91,13 +96,14 @@ export class ApiCaptureRunner {
       if (!id) {
         return;
       }
+      const contentType = response.headers()["content-type"] ?? "";
       const bodyPreview = await response.text().catch(() => "");
       this.recorder?.recordResponse({
         requestId: id,
         status: response.status(),
         url: response.url(),
-        contentType: response.headers()["content-type"] ?? "",
-        bodyPreview: bodyPreview.slice(0, 2000)
+        contentType,
+        bodyPreview: bodyPreview.slice(0, responsePreviewLimit(response.url(), contentType))
       });
     });
   }

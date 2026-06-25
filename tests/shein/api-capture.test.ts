@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   ApiCaptureRecorder,
   classifyCaptureUrl,
+  responsePreviewLimit,
   sanitizeHeaders,
   writeApiCaptureFile
 } from "../../src/shein/api-capture.js";
@@ -59,6 +60,14 @@ describe("SHEIN API capture helpers", () => {
       }],
       candidateCount: 1
     });
+  });
+
+  it("keeps longer previews for captured DPAS API JSON responses", () => {
+    expect(responsePreviewLimit(
+      "https://sso.geiwohuo.com/dpas-api-prefix/dpas/discuss/bargain_page",
+      "application/json"
+    )).toBeGreaterThan(100_000);
+    expect(responsePreviewLimit("https://seller.test/static/app.js", "application/javascript")).toBe(2_000);
   });
 
   it("writes a timestamped capture file", () => {
