@@ -123,6 +123,52 @@ describe("PricingRunner", () => {
     expect(processAllPages).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the API processor by default", async () => {
+    const state = new TaskStateStore();
+    const apiResponses = [
+      {
+        code: "0",
+        msg: "OK",
+        info: {
+          data: [{
+            bargain_sn: "YJ-api",
+            document_sn: "DOC-api",
+            sku_cost_prices: [{
+              cost_price_histories: [{ prime_cost_price: "8.00" }],
+              suggest_prime_cost_price: "0.80"
+            }]
+          }]
+        }
+      },
+      { code: "0", msg: "OK", info: { success_count: 1, fail_count: 0 } },
+      { code: "0", msg: "OK", info: { data: [] } }
+    ];
+    const page = {
+      evaluate: vi.fn(async () => apiResponses.shift())
+    } as unknown as Page;
+    const runner = new PricingRunner({
+      config: { ...config, retryDelayMs: 0 },
+      state,
+      hubstudio: {
+        findProfileByName: vi.fn(async () => ({ id: "profile-1", name: "profile-name" })),
+        startProfile: vi.fn(async () => ({ wsEndpoint: "ws://browser" }))
+      } as unknown as HubstudioClient,
+      browser: {
+        connect: vi.fn(async () => page),
+        openShein: vi.fn(async (): Promise<LoginNavigationResult> => ({ status: "ready", page })),
+        close: vi.fn(async () => undefined)
+      } as unknown as BrowserSession
+    });
+
+    await runner.run(["profile-name"], "low_price", { lowPriceThreshold: 0.7 });
+
+    expect(page.evaluate).toHaveBeenCalledTimes(3);
+    expect(state.snapshot().status).toBe("completed");
+    expect(state.snapshot().results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ productId: "YJ-api", action: "confirmed" })
+    ]));
+  });
+
   it("retries transient SHEIN navigation failures before processing pages", async () => {
     const state = new TaskStateStore();
     const page = {} as Page;

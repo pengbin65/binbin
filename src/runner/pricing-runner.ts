@@ -4,7 +4,7 @@ import type { AppConfig } from "../config.js";
 import type { PricingOptions, PricingRuleId } from "../domain/pricing.js";
 import type { TaskStateStore } from "../domain/task-state.js";
 import { HubstudioClient } from "../hubstudio/hubstudio-client.js";
-import { SheinProcessor } from "../shein/shein-processor.js";
+import { SheinApiProcessor } from "../shein/api-processor.js";
 
 type ProcessorLike = {
   processAllPages(): Promise<void>;
@@ -29,10 +29,13 @@ export class PricingRunner {
       apiToken: options.config.hubstudioApiToken
     });
     this.browser = options.browser ?? new BrowserSession();
-    this.createProcessor = options.createProcessor ?? ((page, pricingRule, pricingOptions) => new SheinProcessor(page, options.state, {
-      attempts: options.config.retryAttempts,
-      delayMs: options.config.retryDelayMs
-    }, pricingRule, pricingOptions));
+    this.createProcessor = options.createProcessor ?? ((page, pricingRule, pricingOptions) => new SheinApiProcessor(
+      page,
+      options.state,
+      pricingRule,
+      pricingOptions,
+      { delayMs: options.config.retryDelayMs }
+    ));
   }
 
   async stop(): Promise<void> {
