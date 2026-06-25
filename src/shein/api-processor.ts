@@ -23,6 +23,8 @@ type DpasApiResponse = {
 };
 
 const PHASE = "shein-api";
+const DPAS_DISCUSS_PRICE_ROUTE = "/#/dpas/discuss-price/list?type=1&id=1&last_page=home_todo_1";
+const NAVIGATION_TIMEOUT_MS = 60_000;
 
 export class SheinApiProcessor {
   private readonly pageSize: number;
@@ -41,6 +43,7 @@ export class SheinApiProcessor {
 
   async processAllPages(): Promise<void> {
     this.state.setStatus("pricing");
+    await this.ensureDiscussPricePage();
 
     while (!this.state.shouldStop()) {
       const pagePayload = await this.postDpas(
@@ -78,6 +81,18 @@ export class SheinApiProcessor {
 
       await delay(this.delayMs);
     }
+  }
+
+  private async ensureDiscussPricePage(): Promise<void> {
+    const currentUrl = this.page.url();
+    this.state.log(PHASE, `Current SHEIN URL before API pricing: ${currentUrl}`);
+    if (currentUrl.includes("/dpas/discuss-price/list")) {
+      return;
+    }
+
+    const targetUrl = `${new URL(currentUrl).origin}${DPAS_DISCUSS_PRICE_ROUTE}`;
+    await this.page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
+    this.state.log(PHASE, `Navigated to SHEIN API pricing page: ${targetUrl}`);
   }
 
   private bargainPageBody(): Record<string, unknown> {

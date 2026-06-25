@@ -22,7 +22,10 @@ describe("SheinApiProcessor", () => {
       { code: "0", msg: "OK", info: { data: [] } }
     ];
     const calls: Array<{ path: string; body: unknown }> = [];
+    const goto = vi.fn(async () => undefined);
     const page = {
+      url: vi.fn(() => "https://sso.geiwohuo.com/#/spmp/commodities/list"),
+      goto,
       evaluate: vi.fn(async (_fn: unknown, input: { path: string; body: unknown }) => {
         calls.push(input);
         return apiResponses.shift();
@@ -31,6 +34,10 @@ describe("SheinApiProcessor", () => {
 
     await new SheinApiProcessor(page, state, "low_price", { lowPriceThreshold: 0.7 }).processAllPages();
 
+    expect(goto).toHaveBeenCalledWith(
+      "https://sso.geiwohuo.com/#/dpas/discuss-price/list?type=1&id=1&last_page=home_todo_1",
+      { waitUntil: "domcontentloaded", timeout: 60000 }
+    );
     expect(calls).toEqual([
       {
         path: "/discuss/bargain_page?page_num=1&page_size=10",

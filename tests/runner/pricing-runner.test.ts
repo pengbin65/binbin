@@ -144,6 +144,8 @@ describe("PricingRunner", () => {
       { code: "0", msg: "OK", info: { data: [] } }
     ];
     const page = {
+      url: vi.fn(() => "https://sso.geiwohuo.com/#/spmp/commodities/list"),
+      goto: vi.fn(async () => undefined),
       evaluate: vi.fn(async () => apiResponses.shift())
     } as unknown as Page;
     const runner = new PricingRunner({
