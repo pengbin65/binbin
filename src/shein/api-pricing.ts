@@ -8,8 +8,9 @@ import {
 
 type RawBargainPage = {
   info?: {
-    data?: RawBargainItem[];
+    data?: unknown[];
   };
+  [key: string]: unknown;
 };
 
 type RawBargainItem = {
@@ -22,10 +23,12 @@ type RawBargainItem = {
 type RawSkuCostPrice = {
   cost_price_histories?: RawCostHistory[];
   suggest_prime_cost_price?: unknown;
+  [key: string]: unknown;
 };
 
 type RawCostHistory = {
   prime_cost_price?: unknown;
+  [key: string]: unknown;
 };
 
 export type ApiPricingDecision = {
@@ -54,7 +57,7 @@ export function decideBargainPage(
   pricingRule: PricingRuleId,
   pricingOptions: PricingOptions = {}
 ): ApiPricingDecision[] {
-  const rows = Array.isArray(payload.info?.data) ? payload.info.data : [];
+  const rows = Array.isArray(payload.info?.data) ? payload.info.data.filter(isRecord) as RawBargainItem[] : [];
   return rows.flatMap((row) => {
     const productId = toText(row.bargain_sn);
     const documentSn = toText(row.document_sn);
@@ -134,4 +137,8 @@ function parseNumber(value: unknown): number | undefined {
 
 function toText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
 }

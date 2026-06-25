@@ -15,7 +15,11 @@ type SheinApiProcessorOptions = {
 type DpasApiResponse = {
   code?: unknown;
   msg?: unknown;
-  info?: unknown;
+  info?: {
+    data?: unknown[];
+    success_count?: unknown;
+    fail_count?: unknown;
+  };
 };
 
 const PHASE = "shein-api";
