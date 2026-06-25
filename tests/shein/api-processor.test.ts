@@ -32,7 +32,13 @@ describe("SheinApiProcessor", () => {
     await new SheinApiProcessor(page, state, "low_price", { lowPriceThreshold: 0.7 }).processAllPages();
 
     expect(calls).toEqual([
-      expect.objectContaining({ path: "/discuss/bargain_page" }),
+      {
+        path: "/discuss/bargain_page?page_num=1&page_size=10",
+        body: expect.not.objectContaining({
+          page_num: expect.anything(),
+          page_size: expect.anything()
+        })
+      },
       {
         path: "/discuss/batch_handle_cost_discuss",
         body: {
@@ -42,7 +48,13 @@ describe("SheinApiProcessor", () => {
           ]
         }
       },
-      expect.objectContaining({ path: "/discuss/bargain_page" })
+      {
+        path: "/discuss/bargain_page?page_num=1&page_size=10",
+        body: expect.not.objectContaining({
+          page_num: expect.anything(),
+          page_size: expect.anything()
+        })
+      }
     ]);
     expect(state.snapshot().status).toBe("completed");
     expect(state.snapshot().results).toMatchObject([

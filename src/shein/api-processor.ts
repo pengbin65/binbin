@@ -43,7 +43,10 @@ export class SheinApiProcessor {
     this.state.setStatus("pricing");
 
     while (!this.state.shouldStop()) {
-      const pagePayload = await this.postDpas("/discuss/bargain_page", this.bargainPageBody());
+      const pagePayload = await this.postDpas(
+        `/discuss/bargain_page?page_num=1&page_size=${this.pageSize}`,
+        this.bargainPageBody()
+      );
       const decisions = decideBargainPage(pagePayload, this.pricingRule, this.pricingOptions);
       if (!decisions.length) {
         this.state.log(PHASE, "No API bargain rows found on first page; pricing complete");
@@ -85,9 +88,7 @@ export class SheinApiProcessor {
     return {
       bargain_status: 1,
       start_time: formatDateTime(start, false),
-      end_time: formatDateTime(end, true),
-      page_num: 1,
-      page_size: this.pageSize
+      end_time: formatDateTime(end, true)
     };
   }
 
