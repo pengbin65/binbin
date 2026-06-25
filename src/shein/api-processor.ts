@@ -246,5 +246,25 @@ function describeFirstBargainRow(payload: DpasApiResponse): string {
     .filter(([, value]) => value && typeof value === "object")
     .slice(0, 8)
     .map(([key, value]) => `${key}=[${Object.keys(value as Record<string, unknown>).slice(0, 12).join(",")}]`);
-  return `keys=[${details.join(",")}]; nested=${nested.join("; ") || "none"}`;
+  return `keys=[${details.join(",")}]; nested=${nested.join("; ") || "none"}; ${describeFirstSku(row)}`;
+}
+
+function describeFirstSku(row: Record<string, unknown>): string {
+  const skuPrices = row.sku_cost_prices;
+  if (!Array.isArray(skuPrices) || !skuPrices.length) {
+    return "firstSkuKeys=none";
+  }
+
+  const firstSku = skuPrices[0];
+  if (!firstSku || typeof firstSku !== "object") {
+    return "firstSkuKeys=not_object";
+  }
+
+  const sku = firstSku as Record<string, unknown>;
+  const skuKeys = Object.keys(sku).slice(0, 40);
+  const nested = Object.entries(sku)
+    .filter(([, value]) => value && typeof value === "object")
+    .slice(0, 10)
+    .map(([key, value]) => `${key}=[${Object.keys(value as Record<string, unknown>).slice(0, 20).join(",")}]`);
+  return `firstSkuKeys=[${skuKeys.join(",")}]; firstSkuNested=${nested.join("; ") || "none"}`;
 }

@@ -151,6 +151,7 @@ describe("SheinApiProcessor", () => {
     expect(snapshot.logs.map((log) => log.message).join("\n")).toContain("API returned 1 rows but none could be parsed");
     expect(snapshot.logs.map((log) => log.message).join("\n")).toContain("discuss_sn");
     expect(snapshot.logs.map((log) => log.message).join("\n")).toContain("unknown_prices");
+    expect(snapshot.logs.map((log) => log.message).join("\n")).toContain("firstSkuKeys");
   });
 });
 
