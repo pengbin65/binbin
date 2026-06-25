@@ -117,6 +117,41 @@ describe("SheinApiProcessor", () => {
       { productId: "YJ-native", action: "confirmed", passed: true }
     ]);
   });
+
+  it("fails with diagnostics when API rows cannot be parsed into pricing decisions", async () => {
+    const state = new TaskStateStore();
+    state.start();
+    const page = {
+      url: vi.fn(() => "https://sso.geiwohuo.com/#/spmp/commodities/list"),
+      goto: vi.fn(async () => undefined),
+      reload: vi.fn(async () => undefined),
+      waitForResponse: vi.fn(async () => ({
+        url: () => "https://sso.geiwohuo.com/dpas-api-prefix/dpas/discuss/bargain_page?page_num=1&page_size=10",
+        request: () => ({ method: () => "POST" }),
+        json: async () => ({
+          code: "0",
+          msg: "OK",
+          info: {
+            data: [
+              {
+                discuss_sn: "YJ-unparsed",
+                unknown_prices: [{ price: "0.80" }]
+              }
+            ]
+          }
+        })
+      })),
+      evaluate: vi.fn()
+    } as unknown as Page;
+
+    await new SheinApiProcessor(page, state, "low_price", { lowPriceThreshold: 0.7 }).processAllPages();
+
+    const snapshot = state.snapshot();
+    expect(snapshot.status).toBe("failed");
+    expect(snapshot.logs.map((log) => log.message).join("\n")).toContain("API returned 1 rows but none could be parsed");
+    expect(snapshot.logs.map((log) => log.message).join("\n")).toContain("discuss_sn");
+    expect(snapshot.logs.map((log) => log.message).join("\n")).toContain("unknown_prices");
+  });
 });
 
 function bargainItem(

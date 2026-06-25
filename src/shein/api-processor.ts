@@ -54,6 +54,14 @@ export class SheinApiProcessor {
       nextPagePayload = undefined;
       const decisions = decideBargainPage(pagePayload, this.pricingRule, this.pricingOptions);
       if (!decisions.length) {
+        const rowCount = countBargainRows(pagePayload);
+        if (rowCount > 0) {
+          this.state.log(PHASE, `API returned ${rowCount} rows but none could be parsed into pricing decisions`, "error");
+          this.state.log(PHASE, `First API row shape: ${describeFirstBargainRow(pagePayload)}`, "error");
+          this.state.setStatus("failed");
+          return;
+        }
+
         this.state.log(PHASE, "No API bargain rows found on first page; pricing complete");
         this.state.setStatus("completed");
         return;
@@ -220,4 +228,23 @@ function isBargainPageResponse(response: Response): boolean {
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function countBargainRows(payload: DpasApiResponse): number {
+  return Array.isArray(payload.info?.data) ? payload.info.data.length : 0;
+}
+
+function describeFirstBargainRow(payload: DpasApiResponse): string {
+  const first = Array.isArray(payload.info?.data) ? payload.info.data[0] : undefined;
+  if (!first || typeof first !== "object") {
+    return "no object row";
+  }
+
+  const row = first as Record<string, unknown>;
+  const details = Object.keys(row).slice(0, 30);
+  const nested = Object.entries(row)
+    .filter(([, value]) => value && typeof value === "object")
+    .slice(0, 8)
+    .map(([key, value]) => `${key}=[${Object.keys(value as Record<string, unknown>).slice(0, 12).join(",")}]`);
+  return `keys=[${details.join(",")}]; nested=${nested.join("; ") || "none"}`;
 }
