@@ -24,6 +24,7 @@ type RawSkuCostPrice = {
   cost_price_histories?: RawCostHistory[];
   suggest_prime_cost_price?: unknown;
   suggest_cost_price?: unknown;
+  latest_cost_price?: unknown;
   [key: string]: unknown;
 };
 
@@ -115,7 +116,7 @@ export function buildBatchHandleCostDiscussPayload(decisions: ApiPricingDecision
 
 function toPricingInput(row: RawSkuCostPrice): { quotedPrice: number; officialSuggestedPrice: number } | undefined {
   const latestHistory = Array.isArray(row.cost_price_histories) ? row.cost_price_histories.at(-1) : undefined;
-  const quotedPrice = parseNumber(latestHistory?.prime_cost_price);
+  const quotedPrice = parseNumber(latestHistory?.prime_cost_price) ?? parseNumber(row.latest_cost_price);
   const officialSuggestedPrice = parseNumber(row.suggest_prime_cost_price) ?? parseNumber(row.suggest_cost_price);
   if (quotedPrice === undefined || officialSuggestedPrice === undefined) {
     return undefined;
