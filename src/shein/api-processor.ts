@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Page, Response } from "playwright";
 import type { PricingOptions, PricingRuleId } from "../domain/pricing.js";
 import type { TaskStateStore } from "../domain/task-state.js";
 import {
@@ -25,6 +25,7 @@ type DpasApiResponse = {
 const PHASE = "shein-api";
 const DPAS_DISCUSS_PRICE_ROUTE = "/#/dpas/discuss-price/list?type=1&id=1&last_page=home_todo_1";
 const NAVIGATION_TIMEOUT_MS = 60_000;
+const NATIVE_BARGAIN_TIMEOUT_MS = 30_000;
 
 export class SheinApiProcessor {
   private readonly pageSize: number;
@@ -43,13 +44,14 @@ export class SheinApiProcessor {
 
   async processAllPages(): Promise<void> {
     this.state.setStatus("pricing");
-    await this.ensureDiscussPricePage();
+    let nextPagePayload = await this.ensureDiscussPricePage();
 
     while (!this.state.shouldStop()) {
-      const pagePayload = await this.postDpas(
+      const pagePayload = nextPagePayload ?? await this.postDpas(
         `/discuss/bargain_page?page_num=1&page_size=${this.pageSize}`,
         this.bargainPageBody()
       );
+      nextPagePayload = undefined;
       const decisions = decideBargainPage(pagePayload, this.pricingRule, this.pricingOptions);
       if (!decisions.length) {
         this.state.log(PHASE, "No API bargain rows found on first page; pricing complete");
@@ -80,19 +82,56 @@ export class SheinApiProcessor {
       }
 
       await delay(this.delayMs);
+      nextPagePayload = await this.reloadAndWaitForNativeBargainPage();
     }
   }
 
-  private async ensureDiscussPricePage(): Promise<void> {
+  private async ensureDiscussPricePage(): Promise<DpasApiResponse | undefined> {
     const currentUrl = this.page.url();
     this.state.log(PHASE, `Current SHEIN URL before API pricing: ${currentUrl}`);
     if (currentUrl.includes("/dpas/discuss-price/list")) {
-      return;
+      return this.reloadAndWaitForNativeBargainPage();
     }
 
     const targetUrl = `${new URL(currentUrl).origin}${DPAS_DISCUSS_PRICE_ROUTE}`;
+    const nativeResponse = this.waitForNativeBargainPage("navigation");
     await this.page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS });
     this.state.log(PHASE, `Navigated to SHEIN API pricing page: ${targetUrl}`);
+    return nativeResponse;
+  }
+
+  private async reloadAndWaitForNativeBargainPage(): Promise<DpasApiResponse | undefined> {
+    if (typeof this.page.reload !== "function") {
+      return undefined;
+    }
+
+    const nativeResponse = this.waitForNativeBargainPage("reload");
+    await this.page.reload({ waitUntil: "domcontentloaded", timeout: NAVIGATION_TIMEOUT_MS }).catch((error: unknown) => {
+      this.state.log(PHASE, `Reload DPAS pricing page failed before native API wait: ${formatErrorMessage(error)}`, "warn");
+    });
+    return nativeResponse;
+  }
+
+  private async waitForNativeBargainPage(reason: string): Promise<DpasApiResponse | undefined> {
+    if (typeof this.page.waitForResponse !== "function") {
+      return undefined;
+    }
+
+    try {
+      const response = await this.page.waitForResponse(isBargainPageResponse, { timeout: NATIVE_BARGAIN_TIMEOUT_MS });
+      const payload = await response.json() as DpasApiResponse;
+      if (payload.code !== "0") {
+        this.state.log(PHASE, `Native bargain_page during ${reason} returned ${String(payload.msg ?? payload.code ?? "unknown")}`, "warn");
+        return undefined;
+      }
+
+      const dataCount = Array.isArray(payload.info?.data) ? payload.info.data.length : 0;
+      this.state.log(PHASE, `Native bargain_page during ${reason} returned ${dataCount} rows`);
+      return payload;
+    } catch (error) {
+      this.state.log(PHASE, `Timed out waiting for native bargain_page during ${reason}: ${formatErrorMessage(error)}`, "warn");
+      return undefined;
+    }
   }
 
   private bargainPageBody(): Record<string, unknown> {
@@ -172,4 +211,13 @@ function pad(value: number): string {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isBargainPageResponse(response: Response): boolean {
+  return response.url().includes("/dpas-api-prefix/dpas/discuss/bargain_page")
+    && response.request().method().toUpperCase() === "POST";
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -69,6 +69,54 @@ describe("SheinApiProcessor", () => {
       { productId: "YJ-reject", action: "rejected", passed: false }
     ]);
   });
+
+  it("uses the SHEIN page's own bargain_page response after navigation", async () => {
+    const state = new TaskStateStore();
+    state.start();
+    const nativeFirstPage = {
+      code: "0",
+      msg: "OK",
+      info: {
+        data: [
+          bargainItem("YJ-native", "DOC-native", "8.00", "0.80")
+        ]
+      }
+    };
+    const nativeEmptyPage = { code: "0", msg: "OK", info: { data: [] } };
+    const nativeResponses = [nativeFirstPage, nativeEmptyPage];
+    const calls: Array<{ path: string; body: unknown }> = [];
+    const page = {
+      url: vi.fn(() => "https://sso.geiwohuo.com/#/spmp/commodities/list"),
+      goto: vi.fn(async () => undefined),
+      reload: vi.fn(async () => undefined),
+      waitForResponse: vi.fn(async () => ({
+        url: () => "https://sso.geiwohuo.com/dpas-api-prefix/dpas/discuss/bargain_page?page_num=1&page_size=10",
+        request: () => ({ method: () => "POST" }),
+        json: async () => nativeResponses.shift()
+      })),
+      evaluate: vi.fn(async (_fn: unknown, input: { path: string; body: unknown }) => {
+        calls.push(input);
+        return { code: "0", msg: "OK", info: { success_count: 1, fail_count: 0 } };
+      })
+    } as unknown as Page;
+
+    await new SheinApiProcessor(page, state, "low_price", { lowPriceThreshold: 0.7 }).processAllPages();
+
+    expect(page.waitForResponse).toHaveBeenCalledTimes(2);
+    expect(calls).toEqual([
+      {
+        path: "/discuss/batch_handle_cost_discuss",
+        body: {
+          confirm_infos: [
+            { discuss_audit_type: 1, discuss_sn: "YJ-native", document_sn: "DOC-native" }
+          ]
+        }
+      }
+    ]);
+    expect(state.snapshot().results).toMatchObject([
+      { productId: "YJ-native", action: "confirmed", passed: true }
+    ]);
+  });
 });
 
 function bargainItem(
