@@ -50,3 +50,16 @@ describe("control panel editable shop settings", () => {
     expect(script).toContain("removeShop(");
   });
 });
+
+describe("control panel API capture controls", () => {
+  it("renders and wires API capture buttons", () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const script = readFileSync("public/app.js", "utf8");
+
+    expect(html).toContain('id="startCaptureButton"');
+    expect(html).toContain('id="stopCaptureButton"');
+    expect(script).toContain('postCaptureAction("start")');
+    expect(script).toContain('postCaptureAction("stop")');
+    expect(script).toContain("/api/capture/");
+  });
+});

@@ -44,6 +44,8 @@
     startButton: document.getElementById("startButton"),
     pauseButton: document.getElementById("pauseButton"),
     stopButton: document.getElementById("stopButton"),
+    startCaptureButton: document.getElementById("startCaptureButton"),
+    stopCaptureButton: document.getElementById("stopCaptureButton"),
     selectAllShopsButton: document.getElementById("selectAllShopsButton"),
     clearAllShopsButton: document.getElementById("clearAllShopsButton"),
     newShopNameInput: document.getElementById("newShopNameInput"),
@@ -67,6 +69,8 @@
   elements.startButton.addEventListener("click", () => postAction("start"));
   elements.pauseButton.addEventListener("click", () => postAction("pause"));
   elements.stopButton.addEventListener("click", () => postAction("stop"));
+  elements.startCaptureButton.addEventListener("click", () => postCaptureAction("start"));
+  elements.stopCaptureButton.addEventListener("click", () => postCaptureAction("stop"));
   elements.selectAllShopsButton.addEventListener("click", () => setAllShopsSelected(true));
   elements.clearAllShopsButton.addEventListener("click", () => setAllShopsSelected(false));
   elements.addShopButton.addEventListener("click", addShopFromInput);
@@ -202,6 +206,37 @@
     }
   }
 
+  async function postCaptureAction(action) {
+    state.pendingAction = `capture-${action}`;
+    clearError();
+    renderButtons();
+
+    try {
+      const selectedShops = selectedProfileNames();
+      const body = action === "start" ? { profileName: selectedShops[0] } : undefined;
+      const response = await fetch(`/api/capture/${action}`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          ...(body ? { "content-type": "application/json" } : {})
+        },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const payload = await readJsonOrEmpty(response);
+
+      if (!response.ok) {
+        throw new Error(actionErrorMessage(`capture-${action}`, response, payload));
+      }
+
+      await fetchState();
+    } catch (error) {
+      showError(formatError(error));
+    } finally {
+      state.pendingAction = undefined;
+      renderButtons();
+    }
+  }
+
   async function readJsonOrEmpty(response) {
     const text = await response.text();
     if (!text) {
@@ -275,11 +310,14 @@
     const snapshot = state.snapshot || normalizeSnapshot({});
     const isBusy = Boolean(state.pendingAction);
     const isActive = ["connecting", "starting_profile", "logging_in", "navigating", "pricing"].includes(snapshot.status);
-    const hasSelectedShop = selectedProfileNames().length > 0;
+    const selectedShopCount = selectedProfileNames().length;
+    const hasSelectedShop = selectedShopCount > 0;
 
     elements.startButton.disabled = isBusy || isActive || snapshot.status === "paused" || !hasSelectedShop;
     elements.pauseButton.disabled = isBusy || !isActive || snapshot.pauseRequested || snapshot.stopRequested;
     elements.stopButton.disabled = isBusy || snapshot.status === "stopped";
+    elements.startCaptureButton.disabled = isBusy || isActive || selectedShopCount !== 1;
+    elements.stopCaptureButton.disabled = isBusy;
     elements.selectAllShopsButton.disabled = isBusy || isActive;
     elements.clearAllShopsButton.disabled = isBusy || isActive;
     elements.addShopButton.disabled = isBusy || isActive;
@@ -289,6 +327,8 @@
     elements.startButton.textContent = state.pendingAction === "start" ? "开始中" : "开始";
     elements.pauseButton.textContent = state.pendingAction === "pause" ? "暂停中" : "暂停";
     elements.stopButton.textContent = state.pendingAction === "stop" ? "停止中" : "停止";
+    elements.startCaptureButton.textContent = state.pendingAction === "capture-start" ? "探测启动中" : "开始接口探测";
+    elements.stopCaptureButton.textContent = state.pendingAction === "capture-stop" ? "探测停止中" : "停止接口探测";
   }
 
   function renderShopPicker() {
