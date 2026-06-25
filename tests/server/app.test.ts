@@ -93,6 +93,32 @@ describe("createApp", () => {
     });
   });
 
+  it("starts and stops API capture", async () => {
+    const state = new TaskStateStore();
+    const captureRunner = {
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => undefined)
+    };
+    const baseUrl = await listen(createApp({
+      state,
+      runner: { run: vi.fn() },
+      profileNames: ["shop-a"],
+      captureRunner
+    }));
+
+    const start = await fetch(`${baseUrl}/api/capture/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileName: "shop-a" })
+    });
+    const stop = await fetch(`${baseUrl}/api/capture/stop`, { method: "POST" });
+
+    expect(start.status).toBe(202);
+    expect(stop.status).toBe(202);
+    expect(captureRunner.start).toHaveBeenCalledWith("shop-a");
+    expect(captureRunner.stop).toHaveBeenCalledTimes(1);
+  });
+
   it("passes selected profile names, pricing rule, and low-price threshold to the runner on start", async () => {
     const state = new TaskStateStore();
     const run = vi.fn(async () => undefined);

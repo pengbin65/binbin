@@ -11,11 +11,17 @@ export type RunnerLike = {
   stop?: () => Promise<void>;
 };
 
+export type CaptureRunnerLike = {
+  start(profileName: string): Promise<void>;
+  stop(): Promise<void>;
+};
+
 export type CreateAppOptions = {
   state: TaskStateStore;
   runner: RunnerLike;
   profileNames?: string[];
   settingsStore?: SettingsStore;
+  captureRunner?: CaptureRunnerLike;
   publicDir?: string;
 };
 
@@ -51,6 +57,38 @@ export function createApp(options: CreateAppOptions): Express {
     } catch (error) {
       response.status(500).json({ error: formatErrorMessage(error) });
     }
+  });
+
+  app.post("/api/capture/start", (_request, response) => {
+    const profileName = parseCaptureProfileName(_request.body, loadSettings(options).profileNames);
+    if (!profileName) {
+      response.status(400).json({ error: "Select one shop before starting capture" });
+      return;
+    }
+
+    if (!options.captureRunner) {
+      response.status(501).json({ error: "API capture is not configured" });
+      return;
+    }
+
+    response.status(202).json({ started: true });
+    void options.captureRunner.start(profileName).catch((error: unknown) => {
+      options.state.log("api-capture", `Capture runner failed: ${formatErrorMessage(error)}`, "error");
+      options.state.setStatus("failed");
+    });
+  });
+
+  app.post("/api/capture/stop", (_request, response) => {
+    if (!options.captureRunner) {
+      response.status(501).json({ error: "API capture is not configured" });
+      return;
+    }
+
+    response.status(202).json({ stopped: true });
+    void options.captureRunner.stop().catch((error: unknown) => {
+      options.state.log("api-capture", `Capture stop failed: ${formatErrorMessage(error)}`, "error");
+      options.state.setStatus("failed");
+    });
   });
 
   app.post("/api/start", (_request, response) => {
@@ -213,6 +251,20 @@ function parseSelectedProfileNames(body: unknown, configuredProfileNames: string
     .filter((name): name is string => typeof name === "string")
     .map((name) => name.trim())
     .filter((name) => name && (!configured || allowed.has(name)));
+}
+
+function parseCaptureProfileName(body: unknown, configuredProfileNames: string[]): string | undefined {
+  if (!body || typeof body !== "object") {
+    return configuredProfileNames[0];
+  }
+
+  const profileName = (body as { profileName?: unknown }).profileName;
+  if (typeof profileName !== "string") {
+    return configuredProfileNames[0];
+  }
+
+  const trimmed = profileName.trim();
+  return configuredProfileNames.includes(trimmed) ? trimmed : undefined;
 }
 
 function formatErrorMessage(error: unknown): string {
