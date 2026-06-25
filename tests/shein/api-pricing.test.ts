@@ -153,4 +153,41 @@ describe("SHEIN API pricing decisions", () => {
       }
     ]);
   });
+
+  it("accepts SHEIN money objects for quoted and suggested prices", () => {
+    const result = decideBargainPage(
+      {
+        code: "0",
+        msg: "OK",
+        info: {
+          data: [
+            {
+              bargain_sn: "YJ-money-object",
+              document_sn: "DOC-money-object",
+              sku_cost_prices: [
+                {
+                  sku_code: "sku-1",
+                  latest_cost_price: { amount: "8.00", currency: "USD" },
+                  suggest_cost_price: { price: "0.80", currency: "USD" }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "low_price",
+      { lowPriceThreshold: 0.7 }
+    );
+
+    expect(result).toMatchObject([
+      {
+        productId: "YJ-money-object",
+        documentSn: "DOC-money-object",
+        passed: true,
+        quotedPrice: 8,
+        officialSuggestedPrice: 0.8,
+        reason: "OFFICIAL_SUGGESTED_PRICE_AT_LEAST_LOW_PRICE_THRESHOLD"
+      }
+    ]);
+  });
 });

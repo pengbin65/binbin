@@ -30,8 +30,21 @@ type RawSkuCostPrice = {
 
 type RawCostHistory = {
   prime_cost_price?: unknown;
+  cost_price?: unknown;
+  latest_cost_price?: unknown;
   [key: string]: unknown;
 };
+
+const MONEY_VALUE_KEYS = [
+  "amount",
+  "price",
+  "value",
+  "cost_price",
+  "prime_cost_price",
+  "latest_cost_price",
+  "suggest_cost_price",
+  "suggest_prime_cost_price"
+] as const;
 
 export type ApiPricingDecision = {
   productId: string;
@@ -116,7 +129,11 @@ export function buildBatchHandleCostDiscussPayload(decisions: ApiPricingDecision
 
 function toPricingInput(row: RawSkuCostPrice): { quotedPrice: number; officialSuggestedPrice: number } | undefined {
   const latestHistory = Array.isArray(row.cost_price_histories) ? row.cost_price_histories.at(-1) : undefined;
-  const quotedPrice = parseNumber(latestHistory?.prime_cost_price) ?? parseNumber(row.latest_cost_price);
+  const quotedPrice =
+    parseNumber(latestHistory?.prime_cost_price) ??
+    parseNumber(latestHistory?.cost_price) ??
+    parseNumber(latestHistory?.latest_cost_price) ??
+    parseNumber(row.latest_cost_price);
   const officialSuggestedPrice = parseNumber(row.suggest_prime_cost_price) ?? parseNumber(row.suggest_cost_price);
   if (quotedPrice === undefined || officialSuggestedPrice === undefined) {
     return undefined;
@@ -132,6 +149,15 @@ function parseNumber(value: unknown): number | undefined {
 
   if (typeof value === "string") {
     return parsePrice(value) ?? undefined;
+  }
+
+  if (isRecord(value)) {
+    for (const key of MONEY_VALUE_KEYS) {
+      const parsed = parseNumber(value[key]);
+      if (parsed !== undefined) {
+        return parsed;
+      }
+    }
   }
 
   return undefined;
