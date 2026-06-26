@@ -1,5 +1,14 @@
 import type { Page } from "playwright";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const connectOverCDP = vi.hoisted(() => vi.fn());
+
+vi.mock("playwright", () => ({
+  chromium: {
+    connectOverCDP
+  }
+}));
+
 import { BrowserSession } from "../../src/browser/browser-session.js";
 
 type FakeCandidate = {
@@ -78,6 +87,46 @@ class FakePage {
     return new FakeLocator(this.candidates.login ?? []);
   }
 }
+
+describe("BrowserSession.connect", () => {
+  afterEach(() => {
+    connectOverCDP.mockReset();
+    vi.useRealTimers();
+  });
+
+  it("uses an extended timeout when connecting to a Hubstudio browser", async () => {
+    const page = {};
+    connectOverCDP.mockResolvedValueOnce({
+      contexts: () => [{ pages: () => [page] }],
+      close: vi.fn(async () => undefined)
+    });
+    const session = new BrowserSession();
+
+    const result = await session.connect("ws://browser");
+
+    expect(result).toBe(page);
+    expect(connectOverCDP).toHaveBeenCalledWith("ws://browser", { timeout: 120_000 });
+  });
+
+  it("retries when the Hubstudio browser DevTools endpoint is not ready yet", async () => {
+    vi.useFakeTimers();
+    const page = {};
+    connectOverCDP
+      .mockRejectedValueOnce(new Error("Timeout 30000ms exceeded"))
+      .mockResolvedValueOnce({
+        contexts: () => [{ pages: () => [page] }],
+        close: vi.fn(async () => undefined)
+      });
+    const session = new BrowserSession();
+
+    const resultPromise = session.connect("ws://browser");
+    await vi.advanceTimersByTimeAsync(2_000);
+    const result = await resultPromise;
+
+    expect(result).toBe(page);
+    expect(connectOverCDP).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("BrowserSession.openShein", () => {
   beforeEach(() => {

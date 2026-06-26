@@ -16,6 +16,9 @@ const PRICE_ADJUSTMENT_ENTRY_TEXT_PATTERN =
 const VERIFICATION_TEXT_PATTERN =
   /\u9a8c\u8bc1\u7801|\u9a8c\u8bc1|\u4e8c\u6b21\u9a8c\u8bc1|\u5b89\u5168\u9a8c\u8bc1|Verification|Verify/i;
 const NAVIGATION_TIMEOUT_MS = 60_000;
+const CDP_CONNECT_TIMEOUT_MS = 120_000;
+const CDP_CONNECT_ATTEMPTS = 3;
+const CDP_CONNECT_RETRY_DELAY_MS = 2_000;
 const BRIEF_VISIBILITY_TIMEOUT_MS = 3_000;
 const POST_LOGIN_VISIBILITY_TIMEOUT_MS = 2_000;
 
@@ -44,7 +47,7 @@ export class BrowserSession {
       await this.close();
     }
 
-    this.browser = await chromium.connectOverCDP(wsEndpoint);
+    this.browser = await connectOverCdpWithRetry(wsEndpoint);
 
     const context = this.browser.contexts()[0] ?? await this.browser.newContext();
     return context.pages()[0] ?? await context.newPage();
@@ -142,6 +145,24 @@ export class BrowserSession {
     this.browser = undefined;
     await browser?.close();
   }
+}
+
+async function connectOverCdpWithRetry(wsEndpoint: string): Promise<Browser> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= CDP_CONNECT_ATTEMPTS; attempt += 1) {
+    try {
+      return await chromium.connectOverCDP(wsEndpoint, { timeout: CDP_CONNECT_TIMEOUT_MS });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= CDP_CONNECT_ATTEMPTS) {
+        break;
+      }
+      await delay(CDP_CONNECT_RETRY_DELAY_MS);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 async function findReadySheinPage(page: Page, timeout: number, excludePages?: Set<Page>): Promise<Page | null> {
